@@ -1,0 +1,5 @@
+{
+  "name": "CORA AI 藥物解說系統",
+  "description": "由可愛的 AI 助手 Cora 為您提供專業、親切的藥物資訊與衛教解說。",
+  "requestFramePermissions": ["microphone"]
+}
