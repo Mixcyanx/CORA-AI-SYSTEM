@@ -13,12 +13,9 @@
     <script src="https://unpkg.com/framer-motion@10.16.4/dist/framer-motion.js"></script>
     <script src="https://unpkg.com/lucide@0.321.0/dist/umd/lucide.min.js"></script>
     
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; }
-        
-        /* Custom Tailwind Config for Dark Mode */
-        tailwind.config = {
+    <script>
+        // Custom Tailwind Config for Dark Mode
+        window.tailwind.config = {
             darkMode: 'class',
             theme: {
                 extend: {
@@ -28,6 +25,9 @@
                 }
             }
         }
+    </script>
+
+    <style>
 
         /* Scrollbar Styling */
         ::-webkit-scrollbar { width: 6px; }
@@ -345,7 +345,7 @@
                 <div className="min-h-screen flex flex-col text-slate-900 dark:text-slate-100 transition-colors duration-300">
                     <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
                         <div className="flex items-center gap-3">
-                            <div className="bg-teal-500 p-2 rounded-xl shadow-sm">
+                            <div className="bg-teal-500 w-10 h-10 shrink-0 flex items-center justify-center rounded-xl shadow-sm">
                                 <Icon name="pill" className="text-white" size={24} />
                             </div>
                             <div>
@@ -354,10 +354,10 @@
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
-                            <button onClick={() => setTheme(theme === "light" ? "dark" : "light")} className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+                            <button onClick={() => setTheme(theme === "light" ? "dark" : "light")} className="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
                                 <Icon name={theme === "light" ? "moon" : "sun"} size={20} />
                             </button>
-                            <button onClick={() => setAudioEnabled(!audioEnabled)} className={`p-2 rounded-full transition-colors ${audioEnabled ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-600' : 'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>
+                            <button onClick={() => setAudioEnabled(!audioEnabled)} className={`w-10 h-10 shrink-0 flex items-center justify-center rounded-full transition-colors ${audioEnabled ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-600' : 'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>
                                 <Icon name={audioEnabled ? "volume-2" : "volume-x"} size={20} />
                             </button>
                         </div>
@@ -425,20 +425,20 @@
                                             </div>
                                         )}
                                         <div className="flex items-center gap-2">
-                                            <button onClick={startListening} className={`p-3 rounded-2xl transition-all shadow-sm border ${isListening ? 'bg-teal-600 border-teal-600 text-white animate-pulse' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 hover:text-teal-600'}`}>
+                                            <button onClick={startListening} className={`w-12 h-12 shrink-0 flex items-center justify-center rounded-2xl transition-all shadow-sm border ${isListening ? 'bg-teal-600 border-teal-600 text-white animate-pulse' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 hover:text-teal-600'}`}>
                                                 <Icon name="mic" size={20} />
                                             </button>
-                                            <button onClick={() => cameraInputRef.current?.click()} className="p-3 rounded-2xl transition-all shadow-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-teal-600">
+                                            <button onClick={() => cameraInputRef.current?.click()} className="w-12 h-12 shrink-0 flex items-center justify-center rounded-2xl transition-all shadow-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-teal-600">
                                                 <Icon name="camera" size={20} />
                                             </button>
-                                            <button onClick={() => fileInputRef.current?.click()} className="p-3 rounded-2xl transition-all shadow-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-teal-600">
+                                            <button onClick={() => fileInputRef.current?.click()} className="w-12 h-12 shrink-0 flex items-center justify-center rounded-2xl transition-all shadow-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-teal-600">
                                                 <Icon name="image" size={20} />
                                             </button>
                                             <div className="relative flex-1">
                                                 <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" multiple onChange={handleFileChange} className="hidden" />
                                                 <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
                                                 <input type="text" value={input} onChange={(e) => setInput(e.target.value)} onKeyPress={(e) => e.key === "Enter" && handleSend()} placeholder="詢問藥物資訊..." className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all shadow-sm" />
-                                                <button onClick={() => handleSend()} disabled={loading} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-teal-600 text-white rounded-xl hover:bg-teal-700 disabled:opacity-50 transition-colors shadow-sm">
+                                                <button onClick={() => handleSend()} disabled={loading} className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 shrink-0 flex items-center justify-center bg-teal-600 text-white rounded-xl hover:bg-teal-700 disabled:opacity-50 transition-colors shadow-sm">
                                                     <Icon name="send" size={16} />
                                                 </button>
                                             </div>
