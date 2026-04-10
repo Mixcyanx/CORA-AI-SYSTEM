@@ -57,39 +57,34 @@
         // --- Lucide Icon Component ---
         const Icon = ({ name, size = 20, className = "" }) => {
             const iconRef = useRef(null);
-            
+
             useEffect(() => {
-                if (iconRef.current && window.lucide) {
-                    // Convert kebab-case to PascalCase for Lucide CDN icons
-                    const pascalName = name.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');
-                    
-                    // Try to find the icon in lucide.icons or lucide directly
-                    const icon = (lucide.icons && lucide.icons[pascalName]) || 
-                                 (lucide.icons && lucide.icons[name]) || 
-                                 lucide[pascalName] || 
-                                 lucide[name] || 
-                                 (lucide.icons && lucide.icons['HelpCircle']) || 
-                                 lucide['HelpCircle'];
-                    
-                    if (icon && typeof icon.toSvg === 'function') {
-                        iconRef.current.innerHTML = icon.toSvg({
-                            'stroke-width': 2,
-                            'width': size,
-                            'height': size,
-                            'class': className
-                        });
-                    } else {
-                        console.warn(`Icon not found: ${name}`);
-                        // Final fallback: try to use createIcons if direct access fails
-                        iconRef.current.innerHTML = `<i data-lucide="${name}"></i>`;
-                        if (typeof lucide.createIcons === 'function') {
-                            lucide.createIcons();
+                if (!iconRef.current || !window.lucide) return;
+
+                iconRef.current.innerHTML = `<i data-lucide="${name}"></i>`;
+
+                try {
+                    lucide.createIcons({
+                        icons: window.lucide.icons,
+                        attrs: {
+                            width: size,
+                            height: size,
+                            class: className,
+                            "stroke-width": 2
                         }
-                    }
+                    });
+                } catch (e) {
+                    console.warn(`Icon render failed: ${name}`, e);
                 }
             }, [name, size, className]);
 
-            return <span ref={iconRef} className={`inline-flex items-center justify-center ${className}`} style={{ width: size, height: size, minWidth: size, minHeight: size }} />;
+            return (
+                <span
+                    ref={iconRef}
+                    className="inline-flex items-center justify-center"
+                    style={{ width: size, height: size, minWidth: size, minHeight: size }}
+                />
+            );
         };
 
         // --- Gemini Client Implementation ---
