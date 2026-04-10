@@ -1,21 +1,20 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CORA AI 藥物解說系統</title>
     <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Apple_Icon.png" />
-	<link rel="icon" type="image/png" href="https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Icon.png" />
-    <!-- Scripts -->
+    <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Icon.png" />
+
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/framer-motion@10.16.4/dist/framer-motion.js"></script>
-    <script src="https://unpkg.com/lucide@0.321.0/dist/umd/lucide.min.js"></script>
-    
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+
     <script>
-        // Custom Tailwind Config for Dark Mode
         window.tailwind.config = {
             darkMode: 'class',
             theme: {
@@ -25,21 +24,17 @@
                     },
                 }
             }
-        }
+        };
     </script>
 
     <style>
-
-        /* Scrollbar Styling */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         .dark ::-webkit-scrollbar-thumb { background: #475569; }
 
-        /* Icon Fixes */
         .inline-flex svg { display: block; transform: none !important; }
-        
-        /* Animation Keyframes */
+
         @keyframes pulse-teal {
             0%, 100% { opacity: 1; transform: scale(1); }
             50% { opacity: 0.7; transform: scale(1.05); }
@@ -54,15 +49,12 @@
         const { useState, useEffect, useRef, useMemo } = React;
         const { motion, AnimatePresence } = window.Motion;
 
-        // --- Lucide Icon Component ---
         const Icon = ({ name, size = 20, className = "" }) => {
             const iconRef = useRef(null);
 
             useEffect(() => {
                 if (!iconRef.current || !window.lucide) return;
-
                 iconRef.current.innerHTML = `<i data-lucide="${name}"></i>`;
-
                 try {
                     lucide.createIcons({
                         icons: window.lucide.icons,
@@ -87,42 +79,108 @@
             );
         };
 
-        // --- Gemini Client Implementation ---
         async function getGeminiKey() {
-            const res = await fetch("https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/main/config.json");
+            const res = await fetch("https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/main/config.json", {
+                cache: "no-store"
+            });
+            if (!res.ok) {
+                throw new Error("無法讀取 GitHub config.json");
+            }
             const data = await res.json();
+            if (!data.gemini_key) {
+                throw new Error("config.json 裡缺少 gemini_key");
+            }
             return data.gemini_key;
         }
 
         class GeminiClient {
+            constructor() {
+                this.model = "gemini-2.5-flash";
+                this.endpointBase = "https://generativelanguage.googleapis.com/v1beta/models";
+            }
+
+            buildPrompt(userText) {
+                return `
+你是一位名叫 Cora 的專業且親切的藥師助手。
+請用繁體中文回答。
+回答風格：
+1. 先用口語化方式簡單解釋
+2. 若內容涉及藥物，補充：主要成分、用途、副作用、注意事項
+3. 不要胡亂捏造藥名
+4. 若使用者資訊不足，請明確說明需要更多資訊
+5. 不要輸出 markdown 表格
+6. 不要回傳 JSON，直接回正常文字
+
+使用者問題：
+${userText}
+                `.trim();
+            }
+
             async chat(message) {
                 const key = await getGeminiKey();
-                const response = await fetch(
-                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`,
-                    {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            contents: [{
-                                parts: [{ text: message }]
-                            }]
-                        })
-                    }
-                );
+                const url = `${this.endpointBase}/${this.model}:generateContent`;
 
-                if (!response.ok) throw new Error("Gemini API Error");
-                const data = await response.json();
-                return data.candidates?.[0]?.content?.parts?.[0]?.text || "抱歉，目前無法取得回應。";
+                const payload = {
+                    contents: [
+                        {
+                            parts: [
+                                {
+                                    text: this.buildPrompt(message)
+                                }
+                            ]
+                        }
+                    ],
+                    generationConfig: {
+                        temperature: 0.5,
+                        topP: 0.9,
+                        maxOutputTokens: 1024
+                    }
+                };
+
+                const response = await fetch(url, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": key
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const rawText = await response.text();
+
+                if (!response.ok) {
+                    let detail = rawText;
+                    try {
+                        const errJson = JSON.parse(rawText);
+                        detail = errJson?.error?.message || rawText;
+                    } catch (_) {}
+                    throw new Error(`Gemini API Error ${response.status}: ${detail}`);
+                }
+
+                let data;
+                try {
+                    data = JSON.parse(rawText);
+                } catch (_) {
+                    throw new Error("Gemini 回傳格式不是有效 JSON");
+                }
+
+                const text =
+                    data?.candidates?.[0]?.content?.parts
+                        ?.map(p => p.text || "")
+                        .join("")
+                        .trim();
+
+                if (!text) {
+                    throw new Error("Gemini 沒有回傳文字內容");
+                }
+
+                return text;
             }
         }
 
-        const DEFAULT_BASE_URL = "";
-        const DEFAULT_API_KEY = "";
-
-        // --- Components ---
-
         const Character2D = ({ isTalking }) => {
             const [blink, setBlink] = useState(false);
+
             useEffect(() => {
                 const interval = setInterval(() => {
                     setBlink(true);
@@ -166,22 +224,22 @@
                                 {blink ? (
                                     <path className="avatar-shape" d="M-12 0 Q0 6 12 0" fill="none" stroke="#333" strokeWidth="4" strokeLinecap="round" />
                                 ) : (
-                                    <React.Fragment>
+                                    <>
                                         <circle className="avatar-shape" cx="0" cy="0" r="12" fill="#333" />
                                         <circle className="avatar-shape" cx="4" cy="-4" r="4" fill="white" />
                                         <circle className="avatar-shape" cx="-3" cy="3" r="2" fill="white" opacity="0.6" />
-                                    </React.Fragment>
+                                    </>
                                 )}
                             </g>
                             <g transform="translate(125, 125)">
                                 {blink ? (
                                     <path className="avatar-shape" d="M-12 0 Q0 6 12 0" fill="none" stroke="#333" strokeWidth="4" strokeLinecap="round" />
                                 ) : (
-                                    <React.Fragment>
+                                    <>
                                         <circle className="avatar-shape" cx="0" cy="0" r="12" fill="#333" />
                                         <circle className="avatar-shape" cx="4" cy="-4" r="4" fill="white" />
                                         <circle className="avatar-shape" cx="-3" cy="3" r="2" fill="white" opacity="0.6" />
-                                    </React.Fragment>
+                                    </>
                                 )}
                             </g>
                             <path className="avatar-shape" d="M60 105 Q75 95 90 105" fill="none" stroke="#5D4037" strokeWidth="2.5" strokeLinecap="round" />
@@ -216,12 +274,8 @@
             const [loading, setLoading] = useState(false);
             const [isTalking, setIsTalking] = useState(false);
             const [audioEnabled, setAudioEnabled] = useState(true);
-            const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
-            const [showSettings, setShowSettings] = useState(false);
-            const [apiKey, setApiKey] = useState(localStorage.getItem('OPENAI_API_KEY') || "");
-            const [baseUrl, setBaseUrl] = useState(localStorage.getItem('OPENAI_BASE_URL') || DEFAULT_BASE_URL);
+            const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "dark");
             const [stagedImages, setStagedImages] = useState([]);
-            const [medicationInfo, setMedicationInfo] = useState(null);
             const [isListening, setIsListening] = useState(false);
 
             const scrollRef = useRef(null);
@@ -232,32 +286,33 @@
             const client = useMemo(() => new GeminiClient(), []);
 
             useEffect(() => {
-                const root = window.document.documentElement;
-                if (theme === 'dark') root.classList.add('dark');
-                else root.classList.remove('dark');
-                localStorage.setItem('theme', theme);
+                const root = document.documentElement;
+                if (theme === "dark") root.classList.add("dark");
+                else root.classList.remove("dark");
+                localStorage.setItem("theme", theme);
             }, [theme]);
 
             useEffect(() => {
-                if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-            }, [messages]);
+                if (scrollRef.current) {
+                    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+                }
+            }, [messages, loading]);
 
             useEffect(() => {
                 const greetingText = "Hi，我是 Cora！我是您的 AI 藥師助手。我可以幫您解說藥物成分、適應症與副作用，讓用藥更安心。請問今天有什麼我可以幫您的嗎？";
                 setMessages([{ id: "greeting", role: "assistant", content: greetingText }]);
-                setTimeout(() => speakLocal(greetingText), 1000);
+                setTimeout(() => speakLocal(greetingText), 600);
 
-                // Initialize Speech Recognition
                 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
                 if (SpeechRecognition) {
                     const recognition = new SpeechRecognition();
                     recognition.continuous = false;
                     recognition.interimResults = false;
-                    recognition.lang = 'zh-TW';
+                    recognition.lang = "zh-TW";
                     recognition.onresult = (event) => {
-                        const transcript = event.results[0][0].transcript;
+                        const transcript = event.results?.[0]?.[0]?.transcript || "";
                         setInput(transcript);
-                        setTimeout(() => handleSend(transcript), 500);
+                        setTimeout(() => handleSend(transcript), 300);
                     };
                     recognition.onend = () => setIsListening(false);
                     recognition.onerror = () => setIsListening(false);
@@ -266,61 +321,88 @@
             }, []);
 
             const speakLocal = (text) => {
-                if (!('speechSynthesis' in window) || !audioEnabled) return;
+                if (!("speechSynthesis" in window) || !audioEnabled || !text) return;
+
                 window.speechSynthesis.cancel();
+
                 const utterance = new SpeechSynthesisUtterance(text);
-                utterance.lang = 'zh-TW';
+                utterance.lang = "zh-TW";
+
                 const voices = window.speechSynthesis.getVoices();
                 const preferredVoice =
                     voices.find(v => v.name.includes("Microsoft Yating")) ||
                     voices.find(v => v.name.includes("Google 國語")) ||
                     voices.find(v => v.lang === "zh-TW");
+
                 if (preferredVoice) utterance.voice = preferredVoice;
+
                 utterance.pitch = 1;
                 utterance.rate = 1;
                 utterance.volume = 1;
+
                 utterance.onstart = () => setIsTalking(true);
                 utterance.onend = () => setIsTalking(false);
                 utterance.onerror = () => setIsTalking(false);
+
                 window.speechSynthesis.speak(utterance);
             };
 
+            useEffect(() => {
+                if ("speechSynthesis" in window) {
+                    window.speechSynthesis.onvoiceschanged = () => {
+                        window.speechSynthesis.getVoices();
+                    };
+                }
+            }, []);
+
             const startListening = () => {
-                if (recognitionRef.current && !isListening) {
+                if (!recognitionRef.current) return;
+                if (!isListening) {
                     recognitionRef.current.start();
                     setIsListening(true);
-                } else if (isListening) {
-                    recognitionRef.current?.stop();
+                } else {
+                    recognitionRef.current.stop();
+                    setIsListening(false);
                 }
             };
 
             const handleFileChange = async (e) => {
                 const files = e.target.files;
                 if (!files || files.length === 0) return;
+
                 const newStaged = [...stagedImages];
-                for (let file of files) {
+
+                for (const file of files) {
                     const dataUrl = await new Promise((resolve) => {
                         const reader = new FileReader();
                         reader.onload = () => resolve(reader.result);
                         reader.readAsDataURL(file);
                     });
-                    newStaged.push({ data: dataUrl });
+                    newStaged.push({ data: dataUrl, name: file.name });
                 }
+
                 setStagedImages(newStaged);
                 e.target.value = "";
             };
 
             const handleSend = async (overrideInput) => {
-                const currentInput = overrideInput || input;
-                if ((!currentInput.trim() && stagedImages.length === 0) || loading) return;
+                const currentInput = (overrideInput ?? input).trim();
 
-                const text = currentInput.trim() || "請協助分析這些藥物相關圖片。";
+                if ((!currentInput && stagedImages.length === 0) || loading) return;
+
+                const text = currentInput || "請協助分析這些藥物相關圖片。";
                 const currentImages = stagedImages.map(img => img.data);
-                
+
                 setInput("");
                 setStagedImages([]);
-                
-                const userMessage = { id: Date.now().toString(), role: "user", content: text, images: currentImages };
+
+                const userMessage = {
+                    id: Date.now().toString(),
+                    role: "user",
+                    content: text,
+                    images: currentImages
+                };
+
                 setMessages(prev => [...prev, userMessage]);
                 setLoading(true);
 
@@ -334,13 +416,19 @@
                     };
 
                     setMessages(prev => [...prev, assistantMessage]);
-                    setMedicationInfo(null);
                     speakLocal(result);
                 } catch (err) {
                     console.error(err);
-                    const errorText = "抱歉，我暫時無法取得該藥物的資訊。請稍後再試。";
-                    setMessages(prev => [...prev, { id: Date.now().toString(), role: "assistant", content: errorText }]);
-                    speakLocal(errorText);
+                    const errorText = `抱歉，目前無法取得藥物資訊。\n${err.message || "未知錯誤"}`;
+                    setMessages(prev => [
+                        ...prev,
+                        {
+                            id: (Date.now() + 2).toString(),
+                            role: "assistant",
+                            content: errorText
+                        }
+                    ]);
+                    speakLocal("抱歉，目前無法取得藥物資訊。");
                 } finally {
                     setLoading(false);
                 }
@@ -350,40 +438,39 @@
                 <div className="min-h-screen flex flex-col text-slate-900 dark:text-slate-100 transition-colors duration-300">
                     <header className="bg-[#F8F1E7] dark:bg-slate-900 border-b border-[#D8CBB5] dark:border-slate-800 px-4 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
                         <div className="flex items-center gap-3">
-                            
-<div className="bg-cyan-500 w-12 h-12 shrink-0 flex items-center justify-center rounded-2xl shadow-sm">
-    <svg width="34" height="34" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-    <g transform="rotate(-45 32 32)">
-        <rect x="12" y="22" width="40" height="20" rx="10" fill="#2563EB" stroke="#000000" strokeWidth="2"/>
-        <path d="M32 22H42A10 10 0 0 1 42 42H32V22Z" fill="#EF4444" stroke="#000000" strokeWidth="2"/>
-        <line x1="32" y1="22" x2="32" y2="42" stroke="#000000" strokeWidth="2"/>
-    </g>
-</svg>
-</div>
+                            <div className="bg-cyan-500 w-12 h-12 shrink-0 flex items-center justify-center rounded-2xl shadow-sm">
+                                <svg width="34" height="34" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+                                    <g transform="rotate(-45 32 32)">
+                                        <rect x="12" y="22" width="40" height="20" rx="10" fill="#2563EB" stroke="#000000" strokeWidth="2"/>
+                                        <path d="M32 22H42A10 10 0 0 1 42 42H32V22Z" fill="#EF4444" stroke="#000000" strokeWidth="2"/>
+                                        <line x1="32" y1="22" x2="32" y2="42" stroke="#000000" strokeWidth="2"/>
+                                    </g>
+                                </svg>
+                            </div>
                             <div>
                                 <h1 className="text-lg font-bold tracking-tight">CORA AI 藥物解說系統</h1>
                                 <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">專業衛教助手</p>
                             </div>
                         </div>
-                        
-<div className="flex items-center gap-2">
-    <button
-        onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-        className="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-[#EADFCC] dark:bg-slate-800 hover:bg-[#DDD0B8] dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors"
-    >
-        <Icon name={theme === "light" ? "moon" : "sun"} size={20} />
-    </button>
-    <button
-        onClick={() => setAudioEnabled(!audioEnabled)}
-        className={`w-10 h-10 shrink-0 flex items-center justify-center rounded-full transition-colors ${
-            audioEnabled
-                ? "bg-cyan-500/15 dark:bg-cyan-900/30 text-cyan-600"
-                : "bg-[#EADFCC] dark:bg-slate-800 text-slate-400"
-        }`}
-    >
-        <Icon name={audioEnabled ? "volume-2" : "volume-x"} size={20} />
-    </button>
-</div>
+
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+                                className="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-[#EADFCC] dark:bg-slate-800 hover:bg-[#DDD0B8] dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors"
+                            >
+                                <Icon name={theme === "light" ? "moon" : "sun"} size={20} />
+                            </button>
+                            <button
+                                onClick={() => setAudioEnabled(!audioEnabled)}
+                                className={`w-10 h-10 shrink-0 flex items-center justify-center rounded-full transition-colors ${
+                                    audioEnabled
+                                        ? "bg-cyan-500/15 dark:bg-cyan-900/30 text-cyan-600"
+                                        : "bg-[#EADFCC] dark:bg-slate-800 text-slate-400"
+                                }`}
+                            >
+                                <Icon name={audioEnabled ? "volume-2" : "volume-x"} size={20} />
+                            </button>
+                        </div>
                     </header>
 
                     <main className="flex-1 max-w-7xl mx-auto w-full p-4 grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -400,10 +487,16 @@
                             <div className="flex-1 bg-[#F8F1E7] dark:bg-slate-900 rounded-3xl border border-[#D8CBB5] dark:border-slate-800 shadow-sm flex flex-col overflow-hidden min-h-[400px]">
                                 <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-4 scroll-smooth">
                                     {messages.map((msg) => (
-                                        <motion.div key={msg.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`flex gap-3 max-w-[85%] ${msg.role === "user" ? "ml-auto flex-row-reverse" : "mr-auto"}`}>
+                                        <motion.div
+                                            key={msg.id}
+                                            initial={{ opacity: 0, y: 10 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            className={`flex gap-3 max-w-[85%] ${msg.role === "user" ? "ml-auto flex-row-reverse" : "mr-auto"}`}
+                                        >
                                             <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-sm ${msg.role === "user" ? "bg-teal-100 text-teal-600" : "bg-[#EADFCC] dark:bg-slate-800 text-slate-600"}`}>
                                                 <Icon name={msg.role === "user" ? "user" : "bot"} size={16} />
                                             </div>
+
                                             <div className="flex flex-col gap-2">
                                                 {msg.images && msg.images.length > 0 && (
                                                     <div className={`flex flex-wrap gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -414,12 +507,18 @@
                                                         ))}
                                                     </div>
                                                 )}
-                                                <div className={`p-4 rounded-2xl text-sm leading-relaxed shadow-sm ${msg.role === "user" ? "bg-teal-600 text-white rounded-tr-none" : "bg-[#EADFCC] dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-none"}`}>
+
+                                                <div className={`whitespace-pre-wrap p-4 rounded-2xl text-sm leading-relaxed shadow-sm ${
+                                                    msg.role === "user"
+                                                        ? "bg-teal-600 text-white rounded-tr-none"
+                                                        : "bg-[#EADFCC] dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-none"
+                                                }`}>
                                                     {msg.content}
                                                 </div>
                                             </div>
                                         </motion.div>
                                     ))}
+
                                     {loading && (
                                         <div className="flex gap-3 mr-auto">
                                             <div className="w-8 h-8 rounded-full bg-[#EADFCC] dark:bg-slate-800 flex items-center justify-center animate-pulse">
@@ -433,7 +532,9 @@
                                                 >
                                                     <Icon name="loader-2" size={16} className="text-teal-600" />
                                                 </motion.div>
-                                                <span className="text-sm text-slate-500 dark:text-slate-400 font-medium">Cora 正在查閱資料...</span>
+                                                <span className="text-sm text-slate-500 dark:text-slate-400 font-medium">
+                                                    Cora 正在查閱資料...
+                                                </span>
                                             </div>
                                         </div>
                                     )}
@@ -446,42 +547,78 @@
                                                 {stagedImages.map((img, idx) => (
                                                     <div key={idx} className="relative w-12 h-12 rounded-lg overflow-hidden border border-teal-200 dark:border-teal-800 shrink-0">
                                                         <img src={img.data} className="w-full h-full object-cover" />
-                                                        <button onClick={() => setStagedImages(prev => prev.filter((_, i) => i !== idx))} className="absolute top-0 right-0 bg-teal-600 text-white p-0.5 rounded-bl-lg hover:bg-teal-700">
+                                                        <button
+                                                            onClick={() => setStagedImages(prev => prev.filter((_, i) => i !== idx))}
+                                                            className="absolute top-0 right-0 bg-teal-600 text-white p-0.5 rounded-bl-lg hover:bg-teal-700"
+                                                        >
                                                             <Icon name="x" size={10} />
                                                         </button>
                                                     </div>
                                                 ))}
                                             </div>
                                         )}
-                                        
-<div className="flex items-center gap-2">
-    <button
-        onClick={startListening}
-        className={`w-12 h-12 shrink-0 flex items-center justify-center rounded-2xl transition-all shadow-sm border ${
-            isListening
-                ? "bg-cyan-500 border-cyan-500 text-white animate-pulse"
-                : "bg-[#F8F1E7] dark:bg-slate-800 border border-cyan-400/70 dark:border-cyan-400/70 text-cyan-500 hover:text-cyan-400"
-        }`}
-    >
-        <Icon name="mic" size={20} />
-    </button>
-    <button
-        onClick={() => cameraInputRef.current?.click()}
-        className="w-12 h-12 shrink-0 flex items-center justify-center rounded-2xl transition-all shadow-sm bg-[#F8F1E7] dark:bg-slate-800 border border-cyan-400/70 dark:border-cyan-400/70 text-cyan-500 hover:text-cyan-400"
-    >
-        <Icon name="camera" size={20} />
-    </button>
-    <button
-        onClick={() => fileInputRef.current?.click()}
-        className="w-12 h-12 shrink-0 flex items-center justify-center rounded-2xl transition-all shadow-sm bg-[#F8F1E7] dark:bg-slate-800 border border-cyan-400/70 dark:border-cyan-400/70 text-cyan-500 hover:text-cyan-400"
-    >
-        <Icon name="image" size={20} />
-    </button>
-    <div className="relative flex-1">
-                                                <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" multiple onChange={handleFileChange} className="hidden" />
-                                                <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
-                                                <input type="text" value={input} onChange={(e) => setInput(e.target.value)} onKeyPress={(e) => e.key === "Enter" && handleSend()} placeholder="詢問藥物資訊..." className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all shadow-sm" />
-                                                <button onClick={() => handleSend()} disabled={loading} className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 shrink-0 flex items-center justify-center bg-cyan-500 text-white rounded-xl hover:bg-cyan-600 disabled:opacity-50 transition-colors shadow-sm">
+
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={startListening}
+                                                className={`w-12 h-12 shrink-0 flex items-center justify-center rounded-2xl transition-all shadow-sm border ${
+                                                    isListening
+                                                        ? "bg-cyan-500 border-cyan-500 text-white animate-pulse"
+                                                        : "bg-[#F8F1E7] dark:bg-slate-800 border border-cyan-400/70 dark:border-cyan-400/70 text-cyan-500 hover:text-cyan-400"
+                                                }`}
+                                            >
+                                                <Icon name="mic" size={20} />
+                                            </button>
+
+                                            <button
+                                                onClick={() => cameraInputRef.current?.click()}
+                                                className="w-12 h-12 shrink-0 flex items-center justify-center rounded-2xl transition-all shadow-sm bg-[#F8F1E7] dark:bg-slate-800 border border-cyan-400/70 dark:border-cyan-400/70 text-cyan-500 hover:text-cyan-400"
+                                            >
+                                                <Icon name="camera" size={20} />
+                                            </button>
+
+                                            <button
+                                                onClick={() => fileInputRef.current?.click()}
+                                                className="w-12 h-12 shrink-0 flex items-center justify-center rounded-2xl transition-all shadow-sm bg-[#F8F1E7] dark:bg-slate-800 border border-cyan-400/70 dark:border-cyan-400/70 text-cyan-500 hover:text-cyan-400"
+                                            >
+                                                <Icon name="image" size={20} />
+                                            </button>
+
+                                            <div className="relative flex-1">
+                                                <input
+                                                    ref={cameraInputRef}
+                                                    type="file"
+                                                    accept="image/*"
+                                                    capture="environment"
+                                                    multiple
+                                                    onChange={handleFileChange}
+                                                    className="hidden"
+                                                />
+                                                <input
+                                                    ref={fileInputRef}
+                                                    type="file"
+                                                    accept="image/*"
+                                                    multiple
+                                                    onChange={handleFileChange}
+                                                    className="hidden"
+                                                />
+
+                                                <input
+                                                    type="text"
+                                                    value={input}
+                                                    onChange={(e) => setInput(e.target.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === "Enter") handleSend();
+                                                    }}
+                                                    placeholder="詢問藥物資訊..."
+                                                    className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all shadow-sm"
+                                                />
+
+                                                <button
+                                                    onClick={() => handleSend()}
+                                                    disabled={loading}
+                                                    className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 shrink-0 flex items-center justify-center bg-cyan-500 text-white rounded-xl hover:bg-cyan-600 disabled:opacity-50 transition-colors shadow-sm"
+                                                >
                                                     <Icon name="send" size={16} />
                                                 </button>
                                             </div>
@@ -489,88 +626,8 @@
                                     </div>
                                 </div>
                             </div>
-
-                            <AnimatePresence>
-                                {medicationInfo && (
-                                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="bg-[#F8F1E7] dark:bg-slate-900 rounded-3xl border border-[#D8CBB5] dark:border-slate-800 shadow-xl overflow-hidden">
-                                        <div className="bg-teal-600 px-6 py-3 flex items-center justify-between">
-                                            <div className="flex items-center gap-2 text-white">
-                                                <Icon name="info" size={20} />
-                                                <h2 className="font-semibold">藥物詳細資訊卡</h2>
-                                            </div>
-                                            {medicationInfo.reference_image_query && (
-                                                <a href={`https://www.google.com/search?q=${encodeURIComponent(medicationInfo.reference_image_query)}&tbm=isch`} target="_blank" className="flex items-center gap-1 text-xs bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-xl transition-colors">
-                                                    <Icon name="search" size={12} />
-                                                    <span>查看參考圖片</span>
-                                                    <Icon name="external-link" size={10} />
-                                                </a>
-                                            )}
-                                        </div>
-                                        <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-                                            <div className="space-y-2 bg-teal-50/30 dark:bg-teal-900/10 p-4 rounded-2xl border border-teal-100/50">
-                                                <div className="flex items-center gap-2 text-teal-600 font-bold text-sm">
-                                                    <Icon name="pill" size={16} />
-                                                    <h3>主要成分</h3>
-                                                </div>
-                                                <ul className="list-disc list-inside text-xs text-slate-600 dark:text-slate-400 space-y-1">
-                                                    {medicationInfo.ingredients.map((item, idx) => <li key={idx}>{item}</li>)}
-                                                </ul>
-                                            </div>
-                                            <div className="space-y-2 bg-emerald-50/30 dark:bg-emerald-900/10 p-4 rounded-2xl border border-emerald-100/50">
-                                                <div className="flex items-center gap-2 text-emerald-600 font-bold text-sm">
-                                                    <Icon name="shield-alert" size={16} />
-                                                    <h3>適應症</h3>
-                                                </div>
-                                                <ul className="list-disc list-inside text-xs text-slate-600 dark:text-slate-400 space-y-1">
-                                                    {medicationInfo.indications.map((item, idx) => <li key={idx}>{item}</li>)}
-                                                </ul>
-                                            </div>
-                                            <div className="space-y-2 bg-amber-50/30 dark:bg-amber-900/10 p-4 rounded-2xl border border-amber-100/50">
-                                                <div className="flex items-center gap-2 text-amber-600 font-bold text-sm">
-                                                    <Icon name="triangle-alert" size={16} />
-                                                    <h3>常見副作用</h3>
-                                                </div>
-                                                <ul className="list-disc list-inside text-xs text-slate-600 dark:text-slate-400 space-y-1">
-                                                    {medicationInfo.side_effects.map((item, idx) => <li key={idx}>{item}</li>)}
-                                                </ul>
-                                            </div>
-                                            <div className="space-y-2 bg-red-50/30 dark:bg-red-900/10 p-4 rounded-2xl border border-red-100/50">
-                                                <div className="flex items-center gap-2 text-red-600 font-bold text-sm">
-                                                    <Icon name="shield-alert" size={16} />
-                                                    <h3>禁忌與注意事項</h3>
-                                                </div>
-                                                <ul className="list-disc list-inside text-xs text-slate-600 dark:text-slate-400 space-y-1">
-                                                    {medicationInfo.warnings.map((item, idx) => <li key={idx}>{item}</li>)}
-                                                </ul>
-                                            </div>
-                                        </div>
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
                         </div>
                     </main>
-
-                    {showSettings && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-                            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
-                                <div className="p-6 border-b border-gray-100 dark:border-slate-700 flex justify-between items-center">
-                                    <h3 className="text-xl font-bold flex items-center gap-2"><Icon name="settings" className="text-teal-500" />系統設定</h3>
-                                    <button onClick={() => setShowSettings(false)}><Icon name="x" size={24} /></button>
-                                </div>
-                                <div className="p-6 space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-medium mb-1">OpenAI API Key</label>
-                                        <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-..." className="w-full px-4 py-2 rounded-xl border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700 outline-none focus:ring-2 focus:ring-teal-500" />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium mb-1">API 代理網址 (Base URL)</label>
-                                        <input type="text" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://..." className="w-full px-4 py-2 rounded-xl border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700 outline-none focus:ring-2 focus:ring-teal-500" />
-                                    </div>
-                                    <button onClick={() => { localStorage.setItem('OPENAI_API_KEY', apiKey); localStorage.setItem('OPENAI_BASE_URL', baseUrl); setShowSettings(false); }} className="w-full py-3 bg-teal-500 hover:bg-teal-600 text-white font-bold rounded-xl shadow-lg transition-all">儲存設定</button>
-                                </div>
-                            </motion.div>
-                        </div>
-                    )}
 
                     <footer className="py-4 text-center text-slate-400 text-[10px]">
                         © 2026 CORA AI 藥物解說系統 · 本系統僅供參考，請務必諮詢醫師或藥師
@@ -579,7 +636,7 @@
             );
         }
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
+        const root = ReactDOM.createRoot(document.getElementById("root"));
         root.render(<App />);
     </script>
 </body>
