@@ -331,10 +331,7 @@ class OpenAI {
 
                     const response = await client.ask(text);
 
-                    const aiText =
-  response.result ||
-  response.response ||
-  "目前沒有取得回答";
+                    const aiText =response.result ||response.response ||response.answer ||response.message ||JSON.stringify(response, null, 2) ||"目前沒有取得回答";
 
                     let info;
 
