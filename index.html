@@ -93,27 +93,33 @@
         };
 
         // --- OpenAI SDK Mini Implementation ---
-        class OpenAI {
-            constructor({ apiKey, baseURL }) {
-                this.apiKey = apiKey;
-                this.baseURL = baseURL;
+        
+class OpenAI {
+    async ask(question) {
+        const response = await fetch(
+            "https://royal-surf-f8bc.s02204-hill.workers.dev",
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type":"application/json"
+                },
+                body: JSON.stringify({
+                    question: question
+                })
             }
-            async chat(params) {
-                const response = await fetch(`${this.baseURL}/chat/completions`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${this.apiKey}`
-                    },
-                    body: JSON.stringify(params)
-                });
-                if (!response.ok) throw new Error('API Error');
-                return await response.json();
-            }
+        );
+
+        if (!response.ok) {
+            throw new Error("Worker API Error");
         }
 
-        const DEFAULT_BASE_URL = "https://free.v36.cm/v1";
-        const DEFAULT_API_KEY = "sk-70MU4HQPL29819H4E0144d9dC19d4976A03720Ca5aDdD130";
+        return await response.json();
+    }
+}
+
+
+        const DEFAULT_BASE_URL = "https://royal-surf-f8bc.s02204-hill.workers.dev";
+        const DEFAULT_API_KEY = "";
 
         // --- Components ---
 
@@ -213,9 +219,9 @@
             const [isTalking, setIsTalking] = useState(false);
             const [audioEnabled, setAudioEnabled] = useState(true);
             const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
-            const [showSettings, setShowSettings] = useState(false);
-            const [apiKey, setApiKey] = useState(localStorage.getItem('OPENAI_API_KEY') || "");
-            const [baseUrl, setBaseUrl] = useState(localStorage.getItem('OPENAI_BASE_URL') || DEFAULT_BASE_URL);
+            
+            
+            
             const [stagedImages, setStagedImages] = useState([]);
             const [medicationInfo, setMedicationInfo] = useState(null);
             const [isListening, setIsListening] = useState(false);
@@ -225,10 +231,7 @@
             const cameraInputRef = useRef(null);
             const recognitionRef = useRef(null);
 
-            const client = useMemo(() => new OpenAI({
-                apiKey: apiKey || DEFAULT_API_KEY,
-                baseURL: baseUrl || DEFAULT_BASE_URL
-            }), [apiKey, baseUrl]);
+            const client = useMemo(() => new OpenAI(), []);
 
             useEffect(() => {
                 const root = window.document.documentElement;
@@ -326,13 +329,24 @@
                         return { role: msg.role, content };
                     });
 
-                    const response = await client.chat({
-                        model: "gpt-4o-mini",
-                        messages: [{ role: "system", content: systemPrompt }, ...history],
-                        response_format: { type: "json_object" }
-                    });
+                    const response = await client.ask(text);
 
-                    const info = JSON.parse(response.choices[0].message.content);
+                    const aiText = response.response || "目前沒有取得回答";
+
+                    let info;
+
+                    try {
+                        info = JSON.parse(aiText);
+                    } catch {
+                        info = {
+                            answer: aiText,
+                            ingredients: [],
+                            indications: [],
+                            side_effects: [],
+                            warnings: [],
+                            reference_image_query: ""
+                        };
+                    }
                     const assistantMessage = {
                         id: (Date.now() + 1).toString(),
                         role: "assistant",
@@ -557,27 +571,7 @@
                         </div>
                     </main>
 
-                    {showSettings && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-                            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
-                                <div className="p-6 border-b border-gray-100 dark:border-slate-700 flex justify-between items-center">
-                                    <h3 className="text-xl font-bold flex items-center gap-2"><Icon name="settings" className="text-teal-500" />系統設定</h3>
-                                    <button onClick={() => setShowSettings(false)}><Icon name="x" size={24} /></button>
-                                </div>
-                                <div className="p-6 space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-medium mb-1">OpenAI API Key</label>
-                                        <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-..." className="w-full px-4 py-2 rounded-xl border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700 outline-none focus:ring-2 focus:ring-teal-500" />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium mb-1">API 代理網址 (Base URL)</label>
-                                        <input type="text" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://..." className="w-full px-4 py-2 rounded-xl border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700 outline-none focus:ring-2 focus:ring-teal-500" />
-                                    </div>
-                                    <button onClick={() => { localStorage.setItem('OPENAI_API_KEY', apiKey); localStorage.setItem('OPENAI_BASE_URL', baseUrl); setShowSettings(false); }} className="w-full py-3 bg-teal-500 hover:bg-teal-600 text-white font-bold rounded-xl shadow-lg transition-all">儲存設定</button>
-                                </div>
-                            </motion.div>
-                        </div>
-                    )}
+                    
 
                     <footer className="py-4 text-center text-slate-400 text-[10px]">
                         © 2026 CORA AI 藥物解說系統 · 本系統僅供參考，請務必諮詢醫師或藥師
