@@ -278,6 +278,13 @@ class OpenAI {
                 window.speechSynthesis.speak(utterance);
             };
 
+            const notifyReply = () => {
+                // Android 通常可用；iPhone Safari 對震動 API 支援較有限，PWA 或部分瀏覽器可能有效。
+                if (navigator.vibrate) {
+                    navigator.vibrate([80, 40, 80]);
+                }
+            };
+
             const startListening = () => {
                 if (recognitionRef.current && !isListening) {
                     recognitionRef.current.start();
@@ -318,7 +325,7 @@ class OpenAI {
                 setLoading(true);
 
                 try {
-                    const systemPrompt = `你是一位名叫 Cora 的專業且親切的藥劑師助手。請以 JSON 格式回傳：{"answer": "口語解釋", "ingredients": [], "indications": [], "side_effects": [], "warnings": [], "reference_image_query": "搜尋關鍵字"}。使用繁體中文。`;
+                    const systemPrompt = `你是一位名叫 Cora 的專業且親切的藥劑師助手，回答要自然、簡潔、像真人藥師聊天。請以 JSON 格式回傳：{"answer": "口語解釋", "ingredients": [], "indications": [], "side_effects": [], "warnings": [], "reference_image_query": "搜尋關鍵字"}。使用繁體中文。`;
                     
                     const history = [...messages, userMessage].slice(-6).map(msg => {
                         let content = msg.content;
@@ -331,7 +338,13 @@ class OpenAI {
 
                     const response = await client.ask(text);
 
-                    const aiText =response.result ||response.response ||response.answer ||response.message ||JSON.stringify(response, null, 2) ||"目前沒有取得回答";
+                    const aiText =
+                        response.result ||
+                        response.response ||
+                        response.answer ||
+                        response.message ||
+                        (response.rawLLM && response.rawLLM.choices && response.rawLLM.choices[0] && response.rawLLM.choices[0].message && response.rawLLM.choices[0].message.content) ||
+                        "目前沒有取得回答";
 
                     let info;
 
@@ -356,11 +369,13 @@ class OpenAI {
 
                     setMessages(prev => [...prev, assistantMessage]);
                     setMedicationInfo(info);
+                    notifyReply();
                     speakLocal(info.answer);
                 } catch (err) {
                     console.error(err);
                     const errorText = "抱歉，我暫時無法取得該藥物的資訊。請稍後再試。";
                     setMessages(prev => [...prev, { id: Date.now().toString(), role: "assistant", content: errorText }]);
+                    notifyReply();
                     speakLocal(errorText);
                 } finally {
                     setLoading(false);
@@ -534,7 +549,7 @@ class OpenAI {
                                                     <h3>主要成分</h3>
                                                 </div>
                                                 <ul className="list-disc list-inside text-xs text-slate-600 dark:text-slate-400 space-y-1">
-                                                    {medicationInfo.ingredients.map((item, idx) => <li key={idx}>{item}</li>)}
+                                                    {(medicationInfo.ingredients && medicationInfo.ingredients.length ? medicationInfo.ingredients : ["可於對話回答中查看重點說明"]).map((item, idx) => <li key={idx}>{item}</li>)}
                                                 </ul>
                                             </div>
                                             <div className="space-y-2 bg-emerald-50/30 dark:bg-emerald-900/10 p-4 rounded-2xl border border-emerald-100/50">
@@ -543,16 +558,17 @@ class OpenAI {
                                                     <h3>適應症</h3>
                                                 </div>
                                                 <ul className="list-disc list-inside text-xs text-slate-600 dark:text-slate-400 space-y-1">
-                                                    {medicationInfo.indications.map((item, idx) => <li key={idx}>{item}</li>)}
+                                                    {(medicationInfo.indications && medicationInfo.indications.length ? medicationInfo.indications : ["可於對話回答中查看重點說明"]).map((item, idx) => <li key={idx}>{item}</li>)}
                                                 </ul>
                                             </div>
                                             <div className="space-y-2 bg-amber-50/30 dark:bg-amber-900/10 p-4 rounded-2xl border border-amber-100/50">
-                                                <div className="flex items-center gap-2 text-amber-600 font-bold text-sm">
+                                                <div className="flex items-center gap-2 text-amber-500 font-bold text-sm">
+                                                    <Icon name="shield-alert" size={16} />
                                                     <Icon name="triangle-alert" size={16} />
                                                     <h3>常見副作用</h3>
                                                 </div>
                                                 <ul className="list-disc list-inside text-xs text-slate-600 dark:text-slate-400 space-y-1">
-                                                    {medicationInfo.side_effects.map((item, idx) => <li key={idx}>{item}</li>)}
+                                                    {(medicationInfo.side_effects && medicationInfo.side_effects.length ? medicationInfo.side_effects : ["若有不適或特殊疾病，建議諮詢醫師或藥師"]).map((item, idx) => <li key={idx}>{item}</li>)}
                                                 </ul>
                                             </div>
                                             <div className="space-y-2 bg-red-50/30 dark:bg-red-900/10 p-4 rounded-2xl border border-red-100/50">
@@ -561,7 +577,7 @@ class OpenAI {
                                                     <h3>禁忌與注意事項</h3>
                                                 </div>
                                                 <ul className="list-disc list-inside text-xs text-slate-600 dark:text-slate-400 space-y-1">
-                                                    {medicationInfo.warnings.map((item, idx) => <li key={idx}>{item}</li>)}
+                                                    {(medicationInfo.warnings && medicationInfo.warnings.length ? medicationInfo.warnings : ["本系統僅供衛教參考，實際用藥請依醫囑與藥袋標示"]).map((item, idx) => <li key={idx}>{item}</li>)}
                                                 </ul>
                                             </div>
                                         </div>
