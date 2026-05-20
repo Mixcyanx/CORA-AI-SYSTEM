@@ -134,8 +134,16 @@ class OpenAI {
         return data;
     }
 
-    async ask(question, history = [], chatId = null, idToken = null, conversationId = null, images = []) {
-        return this.request({ action: "ask", question, history, chatId, conversationId, images }, idToken);
+    async ask(question, history = [], chatId = null, idToken = null, conversationId = null, images = [], fullMessages = []) {
+        return this.request({
+            action: "ask",
+            question,
+            history,
+            chatId,
+            conversationId,
+            images,
+            messages: fullMessages
+        }, idToken);
     }
     async listConversations(idToken) { return this.request({ action: "listConversations" }, idToken); }
     async loadConversation(idToken, conversationId) { return this.request({ action: "loadConversation", conversationId }, idToken); }
@@ -356,17 +364,26 @@ class OpenAI {
             const loadConversation = async (chat) => {
                 const token = idToken || await getFreshIdToken();
                 if (!token) return;
+
                 try {
+                    setLoading(false);
+                    sendingRef.current = false;
+
                     const data = await client.loadConversation(token, chat.id);
-                    const c = data.conversation || chat;
-                    setMessages(c.messages || []);
-                    setChatMemory(c.chatMemory || []);
-                    setMedicationInfo(c.medicationInfo || null);
-                    setActiveSavedChatId(c.id || chat.id || null);
-                    if (c.geminiChatId) {
-                        setGeminiChatId(c.geminiChatId);
-                        localStorage.setItem("CORA_GEMINIDATA_CHAT_ID", c.geminiChatId);
+                    const conversation = data.conversation || chat;
+
+                    setMessages(conversation.messages || []);
+                    setChatMemory(conversation.chatMemory || []);
+                    setMedicationInfo(conversation.medicationInfo || null);
+                    setActiveSavedChatId(conversation.id || chat.id || null);
+                    setInput("");
+                    setStagedImages([]);
+
+                    if (conversation.geminiChatId) {
+                        setGeminiChatId(conversation.geminiChatId);
+                        localStorage.setItem("CORA_GEMINIDATA_CHAT_ID", conversation.geminiChatId);
                     }
+
                     setHistoryOpen(false);
                 } catch (err) {
                     console.warn("載入對話失敗：", err);
@@ -437,7 +454,8 @@ class OpenAI {
                 setStagedImages([]);
                 
                 const userMessage = { id: Date.now().toString(), role: "user", content: text, images: currentImages };
-                setMessages(prev => [...prev, userMessage]);
+                const nextMessagesBeforeSend = [...messages, userMessage];
+                setMessages(nextMessagesBeforeSend);
                 const currentMemory = [...chatMemory, { role: "user", content: text }].slice(-10);
                 setChatMemory(currentMemory);
                 setLoading(true);
@@ -454,7 +472,7 @@ class OpenAI {
                         return { role: msg.role, content };
                     });
 
-                    const response = await client.ask(text, currentMemory, geminiChatId, idToken, activeSavedChatId, currentImages);
+                    const response = await client.ask(text, currentMemory, geminiChatId, idToken, activeSavedChatId, currentImages, nextMessagesBeforeSend);
 
                     if (response.chatId && response.chatId !== geminiChatId) {
                         setGeminiChatId(response.chatId);
