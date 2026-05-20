@@ -126,6 +126,7 @@ class OpenAI {
 
         const Character2D = ({ isTalking }) => {
             const [blink, setBlink] = useState(false);
+
             useEffect(() => {
                 const interval = setInterval(() => {
                     setBlink(true);
@@ -134,80 +135,56 @@ class OpenAI {
                 return () => clearInterval(interval);
             }, []);
 
+            const avatarBase = "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Avatar.png";
+            const avatarEyeClose = "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Avatar_Eye_Close.png";
+            const avatarMouthOpen = "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Avatar_Mouth_Open.png";
+
             return (
-                <div className="relative w-full h-full flex items-center justify-center overflow-hidden bg-teal-50/30 dark:bg-slate-900/50 rounded-3xl transition-colors duration-300">
+                <div className="relative w-full h-full flex items-center justify-center overflow-hidden bg-[#F8F1E7] dark:bg-slate-900 rounded-3xl transition-colors duration-300">
                     <motion.div
                         animate={{ y: [0, -6, 0] }}
                         transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-                        className="relative w-full h-full max-w-[280px] max-h-[380px] flex items-center justify-center"
+                        className="relative w-full h-full max-w-[360px] max-h-[520px] flex items-center justify-center"
                     >
-                        <svg viewBox="0 0 200 240" className="w-full h-full drop-shadow-lg">
-                            <style>{`
-                                .avatar-shape {
-                                    stroke: #000;
-                                    stroke-width: 0.8;
-                                    vector-effect: non-scaling-stroke;
-                                }
-                            `}</style>
-                            <defs>
-                                <linearGradient id="hairGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                                    <stop offset="0%" stopColor="#5D4037" />
-                                    <stop offset="100%" stopColor="#3E2723" />
-                                </linearGradient>
-                            </defs>
-                            <path className="avatar-shape" d="M25 90 Q10 150 40 190 Q100 210 160 190 Q190 150 175 90 Q100 -10 25 90 Z" fill="url(#hairGrad)" />
-                            <path className="avatar-shape" d="M50 180 Q100 165 150 180 L165 240 L35 240 Z" fill="#B2DFDB" />
-                            <path className="avatar-shape" d="M80 180 L100 205 L120 180" fill="white" />
-                            <path className="avatar-shape" d="M75 185 Q75 210 100 215 Q125 210 125 185" fill="none" stroke="#546E7A" strokeWidth="3" strokeLinecap="round" />
-                            <circle className="avatar-shape" cx="100" cy="225" r="6" fill="#78909C" />
-                            <rect className="avatar-shape" x="90" y="165" width="20" height="15" fill="#FFE0BD" />
-                            <path className="avatar-shape" d="M45 85 Q100 35 155 85 Q165 150 100 185 Q35 150 45 85" fill="#FFE0BD" />
-                            <path className="avatar-shape" d="M35 90 Q100 5 165 90 Q170 115 140 115 Q100 95 60 115 Q30 115 35 90" fill="url(#hairGrad)" />
-                            <path className="avatar-shape" d="M35 95 Q25 135 45 165" fill="none" stroke="url(#hairGrad)" strokeWidth="12" strokeLinecap="round" />
-                            <path className="avatar-shape" d="M165 95 Q175 135 155 165" fill="none" stroke="url(#hairGrad)" strokeWidth="12" strokeLinecap="round" />
-                            <g transform="translate(75, 125)">
-                                {blink ? (
-                                    <path className="avatar-shape" d="M-12 0 Q0 6 12 0" fill="none" stroke="#333" strokeWidth="4" strokeLinecap="round" />
-                                ) : (
-                                    <React.Fragment>
-                                        <circle className="avatar-shape" cx="0" cy="0" r="12" fill="#333" />
-                                        <circle className="avatar-shape" cx="4" cy="-4" r="4" fill="white" />
-                                        <circle className="avatar-shape" cx="-3" cy="3" r="2" fill="white" opacity="0.6" />
-                                    </React.Fragment>
-                                )}
-                            </g>
-                            <g transform="translate(125, 125)">
-                                {blink ? (
-                                    <path className="avatar-shape" d="M-12 0 Q0 6 12 0" fill="none" stroke="#333" strokeWidth="4" strokeLinecap="round" />
-                                ) : (
-                                    <React.Fragment>
-                                        <circle className="avatar-shape" cx="0" cy="0" r="12" fill="#333" />
-                                        <circle className="avatar-shape" cx="4" cy="-4" r="4" fill="white" />
-                                        <circle className="avatar-shape" cx="-3" cy="3" r="2" fill="white" opacity="0.6" />
-                                    </React.Fragment>
-                                )}
-                            </g>
-                            <path className="avatar-shape" d="M60 105 Q75 95 90 105" fill="none" stroke="#5D4037" strokeWidth="2.5" strokeLinecap="round" />
-                            <path className="avatar-shape" d="M110 105 Q125 95 140 105" fill="none" stroke="#5D4037" strokeWidth="2.5" strokeLinecap="round" />
-                            <motion.path
-                                initial={false}
-                                fill="#EF4444"
-                                stroke="#000000"
-                                strokeWidth="1"
-                                animate={isTalking ? {
-                                    d: [
-                                        "M86 156 Q100 169 114 156 Q100 163 86 156 Z",
-                                        "M84 156 Q100 166 116 156 Q100 170 84 156 Z",
-                                        "M82 158 Q100 148 118 158 Q100 174 82 158 Z",
-                                        "M84 156 Q100 166 116 156 Q100 170 84 156 Z",
-                                        "M86 156 Q100 169 114 156 Q100 163 86 156 Z"
-                                    ]
-                                } : {
-                                    d: "M86 156 Q100 169 114 156 Q100 163 86 156 Z"
-                                }}
-                                transition={isTalking ? { duration: 0.75, repeat: Infinity, ease: "easeInOut" } : { duration: 0.25, ease: "easeOut" }}
+                        <div className="relative w-full h-full flex items-center justify-center">
+                            <img
+                                src={avatarBase}
+                                alt="CORA Avatar"
+                                className="absolute inset-0 w-full h-full object-contain select-none pointer-events-none"
+                                draggable="false"
                             />
-                        </svg>
+
+                            <AnimatePresence>
+                                {blink && (
+                                    <motion.img
+                                        key="eye-close"
+                                        src={avatarEyeClose}
+                                        alt=""
+                                        initial={{ opacity: 0 }}
+                                        animate={{ opacity: 1 }}
+                                        exit={{ opacity: 0 }}
+                                        transition={{ duration: 0.05 }}
+                                        className="absolute inset-0 w-full h-full object-contain select-none pointer-events-none"
+                                        draggable="false"
+                                    />
+                                )}
+                            </AnimatePresence>
+
+                            {isTalking && (
+                                <motion.img
+                                    key="mouth-open"
+                                    src={avatarMouthOpen}
+                                    alt=""
+                                    initial={{ opacity: 1 }}
+                                    animate={{ opacity: [1, 1, 0, 0, 1, 0, 1] }}
+                                    exit={{ opacity: 0 }}
+                                    transition={{ duration: 0.42, repeat: Infinity, ease: "steps(1)" }}
+                                    className="absolute inset-0 w-full h-full object-contain select-none pointer-events-none"
+                                    style={{ opacity: 1 }}
+                                    draggable="false"
+                                />
+                            )}
+                        </div>
                     </motion.div>
                 </div>
             );
@@ -412,7 +389,7 @@ class OpenAI {
                     <header className="bg-[#F8F1E7] dark:bg-slate-900 border-b border-[#D8CBB5] dark:border-slate-800 px-4 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
                         <div className="flex items-center gap-3">
                             
-<div className="bg-cyan-500 w-12 h-12 shrink-0 flex items-center justify-center rounded-2xl shadow-sm">
+<div className="bg-transparent w-12 h-12 shrink-0 flex items-center justify-center rounded-2xl">
     <svg width="34" height="34" viewBox="0 0 64 64" fill="none" aria-hidden="true">
     <g transform="rotate(-45 32 32)">
         <rect x="12" y="22" width="40" height="20" rx="10" fill="#2563EB" stroke="#000000" strokeWidth="2"/>
