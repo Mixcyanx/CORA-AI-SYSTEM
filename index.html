@@ -264,6 +264,7 @@ class OpenAI {
             const fileInputRef = useRef(null);
             const cameraInputRef = useRef(null);
             const recognitionRef = useRef(null);
+            const sendingRef = useRef(false);
 
             const client = useMemo(() => new OpenAI("https://royal-surf-f8bc.s02204-hill.workers.dev"), []);
 
@@ -425,7 +426,8 @@ class OpenAI {
 
             const handleSend = async (overrideInput) => {
                 const currentInput = overrideInput || input;
-                if ((!currentInput.trim() && stagedImages.length === 0) || loading) return;
+                if (sendingRef.current || loading || (!currentInput.trim() && stagedImages.length === 0)) return;
+                sendingRef.current = true;
 
                 const text = currentInput.trim() || "請協助分析這些藥物相關圖片。";
                 const currentImages = stagedImages.map(img => img.data);
@@ -524,6 +526,7 @@ class OpenAI {
                     speakLocal(errorText);
                 } finally {
                     setLoading(false);
+                    sendingRef.current = false;
                 }
             };
 
@@ -722,7 +725,12 @@ class OpenAI {
     <div className="relative flex-1">
                                                 <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" multiple onChange={handleFileChange} className="hidden" />
                                                 <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
-                                                <input type="text" value={input} onChange={(e) => setInput(e.target.value)} onKeyPress={(e) => e.key === "Enter" && handleSend()} placeholder="詢問藥物資訊..." className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all shadow-sm" />
+                                                <input type="text" disabled={loading} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => {
+                                                    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                                                        e.preventDefault();
+                                                        if (!loading && !sendingRef.current) handleSend();
+                                                    }
+                                                }} placeholder="詢問藥物資訊..." className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all shadow-sm" />
                                                 <button onClick={() => handleSend()} disabled={loading} className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 shrink-0 flex items-center justify-center bg-cyan-500 text-white rounded-xl hover:bg-cyan-600 disabled:opacity-50 transition-colors shadow-sm">
                                                     <Icon name="send" size={16} />
                                                 </button>
