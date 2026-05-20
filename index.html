@@ -13,6 +13,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/framer-motion@10.16.4/dist/framer-motion.js"></script>
     <script src="https://unpkg.com/lucide@0.321.0/dist/umd/lucide.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
     
     <script>
         // Custom Tailwind Config for Dark Mode
@@ -95,35 +97,58 @@
         // --- OpenAI SDK Mini Implementation ---
         
 class OpenAI {
-    async ask(question, history = [], chatId = null) {
-        const response = await fetch(
-            "https://royal-surf-f8bc.s02204-hill.workers.dev",
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type":"application/json"
-                },
-                body: JSON.stringify({
-                    question: question,
-                    history: history,
-                    chatId: chatId
-                })
-            }
-        );
+    constructor(workerUrl) { this.workerUrl = workerUrl; }
 
+    async request(payload, idToken = null) {
+        const response = await fetch(this.workerUrl, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                ...(idToken ? { "Authorization": `Bearer ${idToken}` } : {})
+            },
+            body: JSON.stringify(payload)
+        });
         const data = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-            throw new Error(data.error || "Worker API Error");
-        }
-
+        if (!response.ok) throw new Error(data.error || "Worker API Error");
         return data;
     }
+
+    async ask(question, history = [], chatId = null, idToken = null, conversationId = null) {
+        return this.request({ action: "ask", question, history, chatId, conversationId }, idToken);
+    }
+    async listConversations(idToken) { return this.request({ action: "listConversations" }, idToken); }
+    async loadConversation(idToken, conversationId) { return this.request({ action: "loadConversation", conversationId }, idToken); }
 }
 
 
         const DEFAULT_BASE_URL = "https://royal-surf-f8bc.s02204-hill.workers.dev";
         const DEFAULT_API_KEY = "";
+
+
+        // --- Firebase Auth Config ---
+        // 前端只負責 Google 登入；Firestore 讀寫全部走 Cloudflare Worker。
+        const firebaseConfig = {
+            apiKey: "AIzaSyA-LX84ad-waxOOBsm3tXWJv_iWFtj8N34",
+  authDomain: "cora-ai-system.firebaseapp.com",
+  projectId: "cora-ai-system",
+  storageBucket: "cora-ai-system.firebasestorage.app",
+  messagingSenderId: "741543356891",
+  appId: "1:741543356891:web:4c43540437a84171b61ffe",
+  measurementId: "G-CG9EW549L6"
+        };
+
+        let firebaseReady = false;
+        let auth = null;
+
+        try {
+            if (window.firebase && firebaseConfig.apiKey && !firebaseConfig.apiKey.includes("請填入")) {
+                firebase.initializeApp(firebaseConfig);
+                auth = firebase.auth();
+                firebaseReady = true;
+            }
+        } catch (err) {
+            console.warn("Firebase 初始化失敗：", err);
+        }
 
         // --- Components ---
 
@@ -198,6 +223,11 @@ class OpenAI {
             const [messages, setMessages] = useState([]);
             const [chatMemory, setChatMemory] = useState([]);
             const [geminiChatId, setGeminiChatId] = useState(() => localStorage.getItem("CORA_GEMINIDATA_CHAT_ID") || null);
+            const [currentUser, setCurrentUser] = useState(null);
+            const [idToken, setIdToken] = useState(null);
+            const [historyOpen, setHistoryOpen] = useState(false);
+            const [savedChats, setSavedChats] = useState([]);
+            const [activeSavedChatId, setActiveSavedChatId] = useState(null);
             const [loading, setLoading] = useState(false);
             const [isTalking, setIsTalking] = useState(false);
             const [audioEnabled, setAudioEnabled] = useState(true);
@@ -214,7 +244,7 @@ class OpenAI {
             const cameraInputRef = useRef(null);
             const recognitionRef = useRef(null);
 
-            const client = useMemo(() => new OpenAI(), []);
+            const client = useMemo(() => new OpenAI("https://royal-surf-f8bc.s02204-hill.workers.dev"), []);
 
             useEffect(() => {
                 const root = window.document.documentElement;
@@ -249,6 +279,85 @@ class OpenAI {
                     recognitionRef.current = recognition;
                 }
             }, []);
+
+
+            useEffect(() => {
+                if (!firebaseReady || !auth) return;
+                const unsubscribe = auth.onAuthStateChanged(async (user) => {
+                    setCurrentUser(user || null);
+                    if (user) {
+                        const token = await user.getIdToken();
+                        setIdToken(token);
+                        await loadCloudHistory(token);
+                    } else {
+                        setIdToken(null);
+                        setSavedChats([]);
+                        setActiveSavedChatId(null);
+                        setHistoryOpen(false);
+                    }
+                });
+                return () => unsubscribe();
+            }, []);
+
+            const signInWithGoogle = async () => {
+                if (!firebaseReady || !auth) {
+                    alert("尚未設定 Firebase。請先填入 firebaseConfig，並啟用 Google 登入。");
+                    return;
+                }
+                const provider = new firebase.auth.GoogleAuthProvider();
+                await auth.signInWithPopup(provider);
+            };
+
+            const signOutGoogle = async () => {
+                if (!auth) return;
+                await auth.signOut();
+            };
+
+            const getFreshIdToken = async () => {
+                if (!auth?.currentUser) return null;
+                const token = await auth.currentUser.getIdToken(true);
+                setIdToken(token);
+                return token;
+            };
+
+            const loadCloudHistory = async (token = idToken) => {
+                if (!token) return;
+                try {
+                    const data = await client.listConversations(token);
+                    setSavedChats(data.conversations || []);
+                } catch (err) {
+                    console.warn("讀取雲端對話失敗：", err);
+                }
+            };
+
+            const loadConversation = async (chat) => {
+                const token = idToken || await getFreshIdToken();
+                if (!token) return;
+                try {
+                    const data = await client.loadConversation(token, chat.id);
+                    const c = data.conversation || chat;
+                    setMessages(c.messages || []);
+                    setChatMemory(c.chatMemory || []);
+                    setMedicationInfo(c.medicationInfo || null);
+                    setActiveSavedChatId(c.id || chat.id || null);
+                    if (c.geminiChatId) {
+                        setGeminiChatId(c.geminiChatId);
+                        localStorage.setItem("CORA_GEMINIDATA_CHAT_ID", c.geminiChatId);
+                    }
+                    setHistoryOpen(false);
+                } catch (err) {
+                    console.warn("載入對話失敗：", err);
+                }
+            };
+
+            const startNewConversation = () => {
+                localStorage.removeItem("CORA_GEMINIDATA_CHAT_ID");
+                setGeminiChatId(null);
+                setChatMemory([]);
+                setMedicationInfo(null);
+                setActiveSavedChatId(null);
+                setMessages([{ id: "greeting-new", role: "assistant", content: "已開啟新的對話，請問今天想查詢哪一種藥物？" }]);
+            };
 
             const speakLocal = (text) => {
                 if (!('speechSynthesis' in window) || !audioEnabled) return;
@@ -321,11 +430,15 @@ class OpenAI {
                         return { role: msg.role, content };
                     });
 
-                    const response = await client.ask(text, currentMemory, geminiChatId);
+                    const response = await client.ask(text, currentMemory, geminiChatId, idToken, activeSavedChatId);
 
                     if (response.chatId && response.chatId !== geminiChatId) {
                         setGeminiChatId(response.chatId);
                         localStorage.setItem("CORA_GEMINIDATA_CHAT_ID", response.chatId);
+                    }
+
+                    if (response.conversationId && response.conversationId !== activeSavedChatId) {
+                        setActiveSavedChatId(response.conversationId);
                     }
 
                     const aiText =
@@ -398,18 +511,12 @@ class OpenAI {
                     <header className="bg-[#F8F1E7] dark:bg-slate-900 border-b border-[#D8CBB5] dark:border-slate-800 px-4 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
                         <div className="flex items-center gap-3">
                             
-<div className="bg-transparent w-12 h-12 shrink-0 flex items-center justify-center rounded-2xl">
-    <svg width="34" height="34" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-    <g transform="rotate(-45 32 32)">
-        <rect x="12" y="22" width="40" height="20" rx="10" fill="#2563EB" stroke="#000000" strokeWidth="2"/>
-        <path d="M32 22H42A10 10 0 0 1 42 42H32V22Z" fill="#EF4444" stroke="#000000" strokeWidth="2"/>
-        <line x1="32" y1="22" x2="32" y2="42" stroke="#000000" strokeWidth="2"/>
-    </g>
-</svg>
+<div className="bg-transparent w-12 h-12 shrink-0 flex items-center justify-center rounded-2xl overflow-hidden">
+    <img src="https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Apple_Icon.png" alt="CORA Logo" className="w-12 h-12 rounded-2xl object-cover select-none pointer-events-none" draggable="false" />
 </div>
                             <div>
                                 <h1 className="text-lg font-bold tracking-tight">CORA AI 藥物解說系統</h1>
-                                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">專業衛教助手 · 已啟用連續對話記憶</p>
+                                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">專業衛教助手 · 已啟用對話記憶</p>
                             </div>
                         </div>
                         
@@ -430,19 +537,17 @@ class OpenAI {
     >
         <Icon name={audioEnabled ? "volume-2" : "volume-x"} size={20} />
     </button>
-    <button
-        title="清除對話記憶"
-        onClick={() => {
-            localStorage.removeItem("CORA_GEMINIDATA_CHAT_ID");
-            setGeminiChatId(null);
-            setChatMemory([]);
-            setMedicationInfo(null);
-            setMessages([{ id: "greeting-reset", role: "assistant", content: "已清除對話記憶，我們可以重新開始。" }]);
-        }}
-        className="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-[#EADFCC] dark:bg-slate-800 hover:bg-[#DDD0B8] dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors"
-    >
+    <button title="新對話" onClick={startNewConversation} className="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-[#EADFCC] dark:bg-slate-800 hover:bg-[#DDD0B8] dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors">
         <Icon name="rotate-ccw" size={18} />
     </button>
+    <button title={currentUser ? "Google 帳號 / 登出" : "登入 Google 儲存對話"} onClick={currentUser ? signOutGoogle : signInWithGoogle} className="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-[#EADFCC] dark:bg-slate-800 hover:bg-[#DDD0B8] dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors overflow-hidden">
+        {currentUser?.photoURL ? <img src={currentUser.photoURL} alt="Google Avatar" className="w-10 h-10 rounded-full object-cover" referrerPolicy="no-referrer" /> : <Icon name="log-in" size={18} />}
+    </button>
+    {currentUser && (
+        <button title="開啟個人對話歷史" onClick={() => setHistoryOpen(true)} className="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-cyan-500/15 dark:bg-cyan-900/30 text-cyan-600 hover:bg-cyan-500/25 transition-colors">
+            <Icon name="panel-left-open" size={18} />
+        </button>
+    )}
 </div>
                     </header>
 
