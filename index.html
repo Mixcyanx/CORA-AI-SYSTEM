@@ -147,6 +147,7 @@ class OpenAI {
     }
     async listConversations(idToken) { return this.request({ action: "listConversations" }, idToken); }
     async loadConversation(idToken, conversationId) { return this.request({ action: "loadConversation", conversationId }, idToken); }
+    async deleteConversation(idToken, conversationId) { return this.request({ action: "deleteConversation", conversationId }, idToken); }
 }
 
 
@@ -258,6 +259,7 @@ class OpenAI {
             const [savedChats, setSavedChats] = useState([]);
             const [activeSavedChatId, setActiveSavedChatId] = useState(null);
             const [previewImage, setPreviewImage] = useState(null);
+            const [deleteTargetChat, setDeleteTargetChat] = useState(null);
             const [loading, setLoading] = useState(false);
             const [isTalking, setIsTalking] = useState(false);
             const [audioEnabled, setAudioEnabled] = useState(true);
@@ -392,11 +394,57 @@ class OpenAI {
 
             const startNewConversation = () => {
                 localStorage.removeItem("CORA_GEMINIDATA_CHAT_ID");
+                const localId = `local-${Date.now()}`;
+                const greeting = {
+                    id: "greeting-new",
+                    role: "assistant",
+                    content: "已開啟新的對話，請問今天想查詢哪一種藥物？"
+                };
+
                 setGeminiChatId(null);
                 setChatMemory([]);
                 setMedicationInfo(null);
-                setActiveSavedChatId(null);
-                setMessages([{ id: "greeting-new", role: "assistant", content: "已開啟新的對話，請問今天想查詢哪一種藥物？" }]);
+                setActiveSavedChatId(localId);
+                setMessages([greeting]);
+                setSavedChats(prev => [
+                    {
+                        id: localId,
+                        title: "新的對話",
+                        messages: [greeting],
+                        chatMemory: [],
+                        medicationInfo: null,
+                        geminiChatId: ""
+                    },
+                    ...prev.filter(item => item.id !== localId)
+                ]);
+                setHistoryOpen(false);
+            };
+
+
+            const confirmDeleteConversation = async () => {
+                if (!deleteTargetChat) return;
+
+                const target = deleteTargetChat;
+                setDeleteTargetChat(null);
+
+                setSavedChats(prev => prev.filter(item => item.id !== target.id));
+
+                if (activeSavedChatId === target.id) {
+                    startNewConversation();
+                }
+
+                if (String(target.id).startsWith("local-")) return;
+
+                const token = idToken || await getFreshIdToken();
+                if (!token) return;
+
+                try {
+                    await client.deleteConversation(token, target.id);
+                    await loadCloudHistory(token);
+                } catch (err) {
+                    console.warn("刪除對話失敗：", err);
+                    await loadCloudHistory(token);
+                }
             };
 
             const speakLocal = (text) => {
@@ -552,6 +600,26 @@ class OpenAI {
             return (
                 <div className="min-h-screen flex flex-col text-slate-900 dark:text-slate-100 transition-colors duration-300">
 
+                    {deleteTargetChat && (
+                        <div className="fixed inset-0 bg-black/60 z-[100001] flex items-center justify-center p-4">
+                            <div className="w-full max-w-sm rounded-3xl bg-[#F8F1E7] dark:bg-slate-900 border border-[#D8CBB5] dark:border-slate-700 shadow-2xl p-6">
+                                <h3 className="text-lg font-bold mb-2">確認刪除聊天室？</h3>
+                                <p className="text-sm text-slate-600 dark:text-slate-400 mb-5">
+                                    確定要刪除「{deleteTargetChat.title || "未命名對話"}」嗎？此操作無法復原。
+                                </p>
+                                <div className="flex gap-3 justify-end">
+                                    <button onClick={() => setDeleteTargetChat(null)} className="px-4 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-sm font-semibold">
+                                        取消
+                                    </button>
+                                    <button onClick={confirmDeleteConversation} className="px-4 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold">
+                                        確認刪除
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+
                     {previewImage && (
                         <div
                             onClick={() => setPreviewImage(null)}
@@ -610,15 +678,37 @@ class OpenAI {
                             )}
 
                             {savedChats.map(chat => (
-                                <button
-                                    key={chat.id}
-                                    onClick={() => loadConversation(chat)}
-                                    className={`w-full text-left p-3 rounded-xl border text-sm transition-colors ${activeSavedChatId === chat.id ? "bg-cyan-500/15 border-cyan-400 text-cyan-600" : "bg-white/60 dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"}`}
-                                >
-                                    <div className="font-semibold truncate">{chat.title || "未命名對話"}</div>
-                                    <div className="text-[10px] text-slate-500 mt-1">{chat.messages?.length || 0} 則訊息</div>
-                                </button>
-                            ))}
+                                            <div
+                                                key={chat.id}
+                                                className={`group w-full flex items-stretch rounded-xl border text-sm transition-colors ${
+                                                    activeSavedChatId === chat.id
+                                                        ? "bg-cyan-500/15 border-cyan-400 text-cyan-600"
+                                                        : "bg-white/60 dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"
+                                                }`}
+                                            >
+                                                <button
+                                                    type="button"
+                                                    onClick={() => loadConversation(chat)}
+                                                    className="flex-1 text-left p-3 min-w-0"
+                                                >
+                                                    <div className="font-semibold truncate">{chat.title || "未命名對話"}</div>
+                                                    <div className="text-[10px] text-slate-500 mt-1">
+                                                        {chat.messages?.length || 0} 則訊息
+                                                    </div>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    title="刪除聊天室"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setDeleteTargetChat(chat);
+                                                    }}
+                                                    className="w-10 shrink-0 flex items-center justify-center text-red-500 hover:bg-red-500 hover:text-white rounded-r-xl transition-colors"
+                                                >
+                                                    ×
+                                                </button>
+                                            </div>
+                                        ))}
                         </div>
 
                         <div className="pt-4 border-t border-slate-200 dark:border-slate-700 mt-4">
