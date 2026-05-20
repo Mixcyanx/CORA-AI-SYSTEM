@@ -153,6 +153,7 @@ class OpenAI {
 
         const DEFAULT_BASE_URL = "https://royal-surf-f8bc.s02204-hill.workers.dev";
         const DEFAULT_API_KEY = "";
+        const TTS_WORKER_URL = `${DEFAULT_BASE_URL}/tts`;
 
 
         // --- Firebase Auth Config ---
@@ -492,11 +493,20 @@ class OpenAI {
 
                     window.speechSynthesis?.cancel();
 
-                    const response = await fetch(
-                        `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=zh-TW&q=${encodeURIComponent(text)}`
-                    );
+                    const response = await fetch(`${TTS_WORKER_URL}?text=${encodeURIComponent(text)}&voice=zh-TW-HsiaoChenNeural`, {
+                        method: "GET",
+                        cache: "no-store"
+                    });
+
+                    if (!response.ok) {
+                        throw new Error("TTS Worker Error");
+                    }
 
                     const blob = await response.blob();
+                    if (!blob || blob.size === 0) {
+                        throw new Error("TTS audio is empty");
+                    }
+
                     const audioUrl = URL.createObjectURL(blob);
 
                     const audio = new Audio(audioUrl);
