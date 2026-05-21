@@ -606,36 +606,21 @@
         }
 
 
-        /* desktop-only fix: keep medication card away from microphone/input bar */
-        @media (min-width: 769px) {
-            .gpt-composer-wrap {
-                z-index: 100 !important;
-                background: var(--gpt-bg) !important;
-                box-shadow: 0 -18px 34px var(--gpt-bg) !important;
-            }
-            .gpt-composer {
-                background: var(--gpt-input) !important;
-                opacity: 1 !important;
-                position: relative !important;
-                z-index: 101 !important;
-            }
-            .gpt-input-row,
-            .gpt-text-input,
-            .gpt-icon-btn,
-            .gpt-send {
-                position: relative !important;
-                z-index: 102 !important;
-            }
-            .gpt-card-in-chat {
-                padding-bottom: 124px !important;
-            }
-            .gpt-chat {
-                padding-bottom: 230px !important;
-            }
-            .gpt-card-under-input {
-                display: none !important;
-            }
-        }
+        
+/* mobile title fix: hide desktop title, show only CORA AI on mobile */
+.mobile-only-title {
+    display: none !important;
+}
+@media (max-width: 768px) {
+    .mobile-only-title {
+        display: block !important;
+    }
+}
+@media (min-width: 769px) {
+    .mobile-only-title {
+        display: none !important;
+    }
+}
 
         </style>
 </head>
@@ -1121,44 +1106,8 @@ class OpenAI {
             };
 
             const startNewConversation = () => {
-
-                // 檢查目前是否已有「空白新對話」
-                const existingEmptyChat = savedChats.find(chat => {
-
-                    const msgs = Array.isArray(chat.messages) ? chat.messages : [];
-
-                    const realUserMessages = msgs.filter(m =>
-                        m.role === "user" &&
-                        String(m.content || "").trim() !== ""
-                    );
-
-                    const realAiMessages = msgs.filter(m =>
-                        m.role === "assistant" &&
-                        !String(m.id || "").includes("greeting")
-                    );
-
-                    // 沒有真正對話內容 => 視為空聊天室
-                    return realUserMessages.length === 0 &&
-                           realAiMessages.length === 0;
-                });
-
-                // 已存在空聊天室時，直接切換過去，不再新增
-                if (existingEmptyChat) {
-
-                    setActiveSavedChatId(existingEmptyChat.id);
-                    setMessages(existingEmptyChat.messages || []);
-                    setChatMemory(existingEmptyChat.chatMemory || []);
-                    setMedicationInfo(existingEmptyChat.medicationInfo || null);
-                    setGeminiChatId(existingEmptyChat.geminiChatId || null);
-                    setHistoryOpen(false);
-
-                    return;
-                }
-
                 localStorage.removeItem("CORA_GEMINIDATA_CHAT_ID");
-
                 const localId = `local-${Date.now()}`;
-
                 const greeting = {
                     id: "greeting-new",
                     role: "assistant",
@@ -1170,7 +1119,6 @@ class OpenAI {
                 setMedicationInfo(null);
                 setActiveSavedChatId(localId);
                 setMessages([greeting]);
-
                 const localChat = {
                     id: localId,
                     title: "新的對話",
@@ -1182,43 +1130,11 @@ class OpenAI {
                     updatedAt: Date.now(),
                     lastAccessedAt: Date.now()
                 };
-
                 setSavedChats(prev => {
-
-                    // 再次硬檢查，避免 React 非同步造成連點新增
-                    const hasEmpty = prev.some(chat => {
-
-                        const msgs = Array.isArray(chat.messages) ? chat.messages : [];
-
-                        const realUserMessages = msgs.filter(m =>
-                            m.role === "user" &&
-                            String(m.content || "").trim() !== ""
-                        );
-
-                        const realAiMessages = msgs.filter(m =>
-                            m.role === "assistant" &&
-                            !String(m.id || "").includes("greeting")
-                        );
-
-                        return realUserMessages.length === 0 &&
-                               realAiMessages.length === 0;
-                    });
-
-                    if (hasEmpty) {
-                        return prev;
-                    }
-
                     const next = upsertChat(prev, localChat);
-
-                    writeLocalChats(
-                        next.filter(item =>
-                            String(item.id).startsWith("local-")
-                        )
-                    );
-
+                    writeLocalChats(next.filter(item => String(item.id).startsWith("local-")));
                     return next;
                 });
-
                 setHistoryOpen(false);
             };
 
@@ -1734,7 +1650,7 @@ class OpenAI {
                             <div className="flex items-center gap-2 min-w-0">
                                 <button className={`gpt-icon-btn gpt-sidebar-toggle ${sidebarCollapsed ? "sidebar-closed" : "sidebar-open"}`} onClick={toggleSidebar} title={sidebarCollapsed ? "開啟側邊欄" : "收合側邊欄"}><Icon name="panel-left" size={20} /></button>
                                 <div className="min-w-0">
-                                    <div className="gpt-title desktop-title-hidden truncate">CORA AI 藥物解說系統</div>
+                                    <div className="gpt-title truncate mobile-only-title">CORA AI</div>
                                 </div>
                             </div>
                             <div className="flex items-center gap-1">
