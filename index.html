@@ -1188,6 +1188,16 @@ class OpenAI {
                     const conversation = data.conversation || chat;
 
                     touchChatToTop(conversation.id || chat.id, conversation);
+					if (!isLocalChat && token) {
+					try {
+						await client.request({
+							action: "touchConversation",
+							conversationId: conversation.id || chat.id
+						}, token);
+					} catch (err) {
+						console.warn("更新聊天室排序時間失敗：", err);
+					}
+				}
                     setMessages(conversation.messages || []);
                     setChatMemory(conversation.chatMemory || []);
                     setMedicationInfo(conversation.medicationInfo || null);
