@@ -31,74 +31,224 @@
     </script>
 
     <style>
-
-        /* Scrollbar Styling */
-        ::-webkit-scrollbar { width: 6px; }
+        :root {
+            /* Light mode: keep CORA's original warm beige feeling */
+            --gpt-bg: #F5EFE6;
+            --gpt-surface: #F8F1E7;
+            --gpt-surface-2: #EADFCC;
+            --gpt-sidebar: #efe4d2;
+            --gpt-sidebar-hover: #e3d4bd;
+            --gpt-text: #211b14;
+            --gpt-muted: #766b5c;
+            --gpt-border: rgba(94, 75, 52, 0.18);
+            --gpt-input: #F8F1E7;
+            --gpt-accent: #0f766e;
+            --gpt-accent-text: #ffffff;
+        }
+        .dark {
+            /* Dark mode: deep blue instead of flat black/gray */
+            --gpt-bg: #081425;
+            --gpt-surface: #0e1e33;
+            --gpt-surface-2: #162a45;
+            --gpt-sidebar: #07111f;
+            --gpt-sidebar-hover: #13243a;
+            --gpt-text: #eef6ff;
+            --gpt-muted: #9fb2c8;
+            --gpt-border: rgba(180, 210, 255, 0.16);
+            --gpt-input: #102238;
+            --gpt-accent: #6bb7ff;
+            --gpt-accent-text: #06101e;
+        }
+        html, body, #root { min-height: 100%; }
+        body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--gpt-bg); color: var(--gpt-text); }
+        * { box-sizing: border-box; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        .dark ::-webkit-scrollbar-thumb { background: #475569; }
+        ::-webkit-scrollbar-thumb { background: rgba(127,127,127,.35); border-radius: 999px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(127,127,127,.55); }
+        .inline-flex svg { display:block; transform:none!important; }
+        .gpt-shell { min-height: 100vh; display: flex; background: var(--gpt-bg); color: var(--gpt-text); }
+        .gpt-sidebar { width: 260px; min-width: 260px; background: var(--gpt-sidebar); color: var(--gpt-text); display:flex; flex-direction:column; padding: 8px; border-right: 1px solid rgba(255,255,255,.06); }
+        .gpt-sidebar-top { display:flex; align-items:center; gap:8px; min-height:48px; padding: 4px 6px 10px; }
+        .gpt-new-chat { width:100%; display:flex; align-items:center; gap:10px; padding: 10px 12px; border-radius:10px; color:var(--gpt-text); background:transparent; border:0; cursor:pointer; font-size:14px; text-align:left; }
+        .gpt-new-chat:hover, .gpt-history-row:hover, .gpt-icon-btn-dark:hover { background: var(--gpt-sidebar-hover); }
+        .gpt-history-list { flex:1; overflow-y:auto; padding: 6px 0; }
+        .gpt-history-section-title { padding: 12px 12px 6px; font-size:12px; color:#9b9b9b; }
+        .gpt-history-row { display:flex; align-items:center; min-height:36px; border-radius:10px; transition:.12s background; color:var(--gpt-text); }
+        .gpt-history-row.active { background:var(--gpt-sidebar-hover); }
+        .gpt-history-main { flex:1; min-width:0; padding: 9px 12px; border:0; background:transparent; color:inherit; text-align:left; cursor:pointer; }
+        .gpt-history-title { font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .gpt-delete-btn { opacity:0; width:30px; height:30px; margin-right:4px; border:1px solid transparent; border-radius:10px; background:transparent; color:var(--gpt-muted); cursor:pointer; display:flex; align-items:center; justify-content:center; transition: opacity .12s ease, background .12s ease, color .12s ease, border-color .12s ease; }
+        .gpt-history-row:hover .gpt-delete-btn { opacity:1; }
+        .gpt-delete-btn:hover { background:rgba(239,68,68,.14); color:#ef4444; border-color:rgba(239,68,68,.28); }
+        .gpt-delete-btn svg { width:16px; height:16px; }
+        .gpt-sidebar-footer { border-top:1px solid rgba(255,255,255,.10); padding-top:8px; }
+        .gpt-user-card { width:100%; display:flex; align-items:center; gap:10px; padding:10px 8px; border:0; border-radius:10px; background:transparent; color:#ececec; cursor:pointer; text-align:left; }
+        .gpt-user-card:hover { background: var(--gpt-sidebar-hover); }
+        .gpt-main { flex:1; min-width:0; display:flex; flex-direction:column; height:100vh; position:relative; background:var(--gpt-bg); }
+        .gpt-topbar { height:56px; display:flex; align-items:center; justify-content:space-between; padding:0 18px; border-bottom:1px solid transparent; }
+        .gpt-title { font-size:18px; font-weight:600; letter-spacing:-.02em; }
+        .gpt-subtitle { font-size:12px; color:var(--gpt-muted); margin-top:1px; }
+        .gpt-icon-btn, .gpt-icon-btn-dark { width:38px; height:38px; border:0; border-radius:10px; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:.12s background; }
+        .gpt-icon-btn { background:transparent; color:var(--gpt-text); }
+        .gpt-input-row .gpt-icon-btn { width:34px; height:34px; border-radius:50%; }
+        .gpt-icon-btn:hover { background:var(--gpt-surface-2); }
+        .gpt-icon-btn-dark { background:transparent; color:#ececec; }
+        .gpt-chat { flex:1; overflow-y:auto; padding: 16px 0 176px; scroll-behavior:smooth; }
+        .gpt-message-row { width:100%; padding: 18px 20px; }
+        .gpt-message-inner { max-width: 760px; margin:0 auto; display:flex; gap:18px; align-items:flex-start; }
+        .gpt-avatar { width:28px; height:28px; border-radius:50%; overflow:hidden; flex:0 0 28px; display:flex; align-items:center; justify-content:center; background:var(--gpt-surface-2); color:var(--gpt-text); }
+        .gpt-avatar.assistant { background:var(--gpt-accent); color:var(--gpt-accent-text); }
+        .gpt-bubble { flex:1; min-width:0; font-size:15px; line-height:1.75; white-space:pre-wrap; color:var(--gpt-text); }
+        .gpt-user-row .gpt-message-inner { flex-direction:row-reverse; }
+        .gpt-user-bubble { max-width:70%; background:var(--gpt-surface-2); padding:10px 16px; border-radius:22px; line-height:1.65; }
+        .gpt-images { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
+        .gpt-image-thumb { max-width:160px; border-radius:14px; overflow:hidden; border:1px solid var(--gpt-border); cursor:zoom-in; }
+        .gpt-composer-wrap { position:absolute; left:0; right:0; bottom:0; padding: 12px 20px 18px; background: linear-gradient(to top, var(--gpt-bg) 78%, transparent); }
+        .gpt-composer { max-width:760px; margin:0 auto; border:1px solid var(--gpt-border); background:var(--gpt-input); border-radius:26px; box-shadow:0 2px 12px rgba(0,0,0,.08); padding:6px 8px; }
+        .gpt-staged { display:flex; flex-wrap:wrap; gap:8px; padding:4px 6px 8px; }
+        .gpt-staged-item { position:relative; width:54px; height:54px; border-radius:12px; overflow:hidden; border:1px solid var(--gpt-border); }
+        .gpt-staged-remove { position:absolute; top:3px; right:3px; width:18px; height:18px; border:0; border-radius:50%; background:rgba(0,0,0,.75); color:white; display:flex; align-items:center; justify-content:center; }
+        .gpt-input-row { display:flex; align-items:center; gap:6px; min-height:40px; }
+        .gpt-text-input { flex:1; height:40px; min-height:40px; border:0; outline:0; background:transparent; color:var(--gpt-text); font-size:15px; padding: 0 6px; }
+        .gpt-send { width:34px; height:34px; flex:0 0 34px; border:0; border-radius:50%; background:var(--gpt-text); color:var(--gpt-bg); display:flex; align-items:center; justify-content:center; cursor:pointer; }
+        .gpt-send:disabled { opacity:.35; cursor:not-allowed; }
+        .gpt-disclaimer { max-width:760px; margin:8px auto 0; text-align:center; color:var(--gpt-muted); font-size:11px; }
+        .gpt-card { max-width:760px; margin: 14px auto 0; border:1px solid var(--gpt-border); background:var(--gpt-surface); border-radius:18px; overflow:hidden; }
+        .gpt-card-head { padding:14px 16px; border-bottom:1px solid var(--gpt-border); display:flex; align-items:center; justify-content:space-between; gap:12px; }
+        .gpt-card-grid { padding:16px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+        .gpt-card-section { border:1px solid var(--gpt-border); border-radius:14px; padding:12px; background:var(--gpt-bg); }
+        .gpt-card-section h3 { font-size:13px; font-weight:700; margin:0 0 8px; display:flex; align-items:center; gap:6px; }
+        .gpt-card-section ul { margin:0; padding-left:18px; color:var(--gpt-muted); font-size:12px; line-height:1.6; }
+        .gpt-loading-dots span { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--gpt-muted); margin-right:4px; animation:gptDot 1s infinite ease-in-out; }
+        .gpt-loading-dots span:nth-child(2){ animation-delay:.15s; } .gpt-loading-dots span:nth-child(3){ animation-delay:.3s; }
+        @keyframes gptDot { 0%,80%,100%{ opacity:.3; transform:translateY(0);} 40%{ opacity:1; transform:translateY(-3px);} }
+        .gpt-mobile-menu { display:none; }
+        .gpt-modal-backdrop { position:fixed; inset:0; z-index:100000; background:rgba(0,0,0,.62); display:flex; align-items:center; justify-content:center; padding:18px; }
+        .gpt-modal { width:100%; max-width:390px; background:var(--gpt-bg); color:var(--gpt-text); border:1px solid var(--gpt-border); border-radius:18px; box-shadow:0 20px 80px rgba(0,0,0,.35); padding:22px; }
+        .cora-history-backdrop { display:none; }
+        .cora-history-drawer { display:none; }
 
-        /* Icon Fixes */
-        .inline-flex svg { display: block; transform: none !important; }
-        
-        /* Animation Keyframes */
-        @keyframes pulse-teal {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.7; transform: scale(1.05); }
-        }
-        .animate-pulse-teal { animation: pulse-teal 2s infinite ease-in-out; }
-    
-        .cora-history-backdrop {
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.42);
-            z-index: 9998;
-        }
-        .cora-history-drawer {
-            position: fixed;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 320px;
-            max-width: 85vw;
-            z-index: 9999;
-            transform: translateX(-105%);
-            transition: transform 260ms ease;
-        }
-        .cora-history-drawer.open {
-            transform: translateX(0);
-        }
-        
-        .cora-chatgpt-sidebar {
-            background: #171717;
-            color: #ececec;
-            border-right: 1px solid rgba(255,255,255,0.08);
-        }
-        .cora-chatgpt-item {
-            background: transparent;
-            color: #ececec;
-            border: none;
-        }
-        .cora-chatgpt-item:hover {
-            background: rgba(255,255,255,0.09);
-        }
-        .cora-chatgpt-item.active {
-            background: rgba(255,255,255,0.13);
-        }
-        .cora-chatgpt-danger {
-            opacity: 0;
-        }
-        .cora-chatgpt-item-wrap:hover .cora-chatgpt-danger {
-            opacity: 1;
-        }
+        .cora-floating-avatar { position:absolute; right:28px; bottom:112px; width:196px; height:250px; border:1px solid var(--gpt-border); border-radius:28px; background:var(--gpt-surface); box-shadow:0 18px 46px rgba(0,0,0,.18); overflow:visible; z-index:4; }
+        .cora-floating-avatar > div:last-child { width:100%; height:100%; border-radius:28px; overflow:hidden; }
+        .cora-floating-avatar-label { position:absolute; left:12px; top:-34px; z-index:5; font-size:12px; font-weight:600; letter-spacing:.02em; padding:6px 11px; border-radius:999px; background:var(--gpt-surface-2); color:var(--gpt-text); border:1px solid var(--gpt-border); box-shadow:0 8px 22px rgba(0,0,0,.12); }
+        @media (max-width: 1180px) { .cora-floating-avatar { width:164px; height:210px; right:18px; bottom:112px; opacity:.96; } }
+        @media (max-width: 860px) { .cora-floating-avatar { display:block; width:96px; height:122px; right:12px; top:68px; bottom:auto; border-radius:20px; opacity:.98; box-shadow:0 12px 32px rgba(0,0,0,.16); } .cora-floating-avatar > div:last-child { border-radius:20px; } .cora-floating-avatar-label { top:-28px; left:6px; font-size:10px; padding:4px 8px; } }
         @media (max-width: 768px) {
-            .cora-chatgpt-danger {
-                opacity: 1;
+            .gpt-sidebar { position:fixed; inset:0 auto 0 0; z-index:99999; transform:translateX(-105%); transition:transform .22s ease; box-shadow:18px 0 45px rgba(0,0,0,.35); }
+            .gpt-sidebar.open { transform:translateX(0); }
+            .gpt-mobile-backdrop { position:fixed; inset:0; z-index:99998; background:rgba(0,0,0,.45); }
+            .gpt-mobile-menu { display:flex; }
+            .gpt-topbar { padding:0 12px; }
+            .gpt-chat { padding-top:132px; }
+            .gpt-title { font-size:16px; max-width:calc(100vw - 168px); }
+            .gpt-message-row { padding:16px 14px; }
+            .gpt-message-inner { gap:12px; }
+            .gpt-user-bubble { max-width:82%; }
+            .gpt-card-grid { grid-template-columns:1fr; }
+            .gpt-composer-wrap { padding:10px 12px 14px; }
+        }
+
+        /* v4 layout: ChatGPT-like right chat area + large borderless CORA avatar */
+        @media (min-width: 1024px) {
+            .gpt-chat { padding: 20px 0 176px; }
+            .gpt-message-inner { max-width: 760px; margin-left: 390px; margin-right: auto; }
+            .gpt-card { max-width: 760px; margin-left: 390px; margin-right: auto; }
+            .gpt-composer { max-width: 700px; margin-left: 390px; margin-right: auto; }
+            .gpt-disclaimer { max-width: 700px; margin-left: 390px; margin-right: auto; }
+            .cora-floating-avatar {
+                left: 54px;
+                right: auto;
+                top: 142px;
+                bottom: auto;
+                width: 330px;
+                height: 430px;
+                border: 0 !important;
+                border-radius: 0 !important;
+                background: transparent !important;
+                box-shadow: none !important;
+                overflow: visible;
+                pointer-events: none;
+            }
+            .cora-floating-avatar > div:last-child {
+                width: 100%;
+                height: 100%;
+                border-radius: 0 !important;
+                background: transparent !important;
+                overflow: visible !important;
+            }
+            .cora-floating-avatar > div:last-child > div {
+                background: transparent !important;
+                border-radius: 0 !important;
+            }
+            .cora-floating-avatar-label {
+                left: -8px;
+                top: -38px;
+                background: transparent !important;
+                border: 0 !important;
+                box-shadow: none !important;
+                padding: 0;
+                color: var(--gpt-text);
+                font-size: 16px;
+                font-weight: 700;
+                pointer-events: none;
             }
         }
+
+        @media (max-width: 1023px) {
+            .gpt-chat { padding-top: 170px; }
+            .cora-floating-avatar {
+                display: block;
+                left: 50%;
+                right: auto;
+                top: 62px;
+                bottom: auto;
+                transform: translateX(-50%);
+                width: 128px;
+                height: 160px;
+                border: 0 !important;
+                border-radius: 0 !important;
+                background: transparent !important;
+                box-shadow: none !important;
+                overflow: visible;
+                pointer-events: none;
+            }
+            .cora-floating-avatar > div:last-child,
+            .cora-floating-avatar > div:last-child > div {
+                border-radius: 0 !important;
+                background: transparent !important;
+                overflow: visible !important;
+            }
+            .cora-floating-avatar-label {
+                left: -42px;
+                top: 12px;
+                background: transparent !important;
+                border: 0 !important;
+                box-shadow: none !important;
+                padding: 0;
+                font-size: 12px;
+                font-weight: 700;
+                color: var(--gpt-text);
+                pointer-events: none;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .gpt-topbar { height: 54px; padding: 0 12px; }
+            .gpt-title { font-size: 15px; }
+            .gpt-subtitle { display: none; }
+            .gpt-chat { padding-top: 150px; padding-bottom: 156px; }
+            .cora-floating-avatar { top: 58px; width: 112px; height: 140px; }
+            .cora-floating-avatar-label { left: -36px; top: 10px; font-size: 11px; }
+            .gpt-message-row { padding-left: 12px; padding-right: 12px; }
+            .gpt-message-inner { gap: 10px; }
+            .gpt-user-bubble { max-width: 82%; }
+            .gpt-composer-wrap { padding-left: 10px; padding-right: 10px; }
+        }
+
         </style>
 </head>
-<body class="bg-[#F5EFE6] dark:bg-slate-950 transition-colors duration-300">
+<body class="transition-colors duration-300">
     <div id="root"></div>
 
     <script type="text/babel">
@@ -776,378 +926,185 @@ class OpenAI {
                 }
             };
 
-            return (
-                <div className="min-h-screen flex flex-col text-slate-900 dark:text-slate-100 transition-colors duration-300">
+                return (
+                <div className="gpt-shell">
+                    {deleteTargetChat && (
+                        <div className="gpt-modal-backdrop">
+                            <div className="gpt-modal">
+                                <h3 className="text-lg font-semibold mb-2">刪除聊天室？</h3>
+                                <p className="text-sm mb-5" style={{ color: "var(--gpt-muted)" }}>確定要刪除「{deleteTargetChat.title || "未命名對話"}」嗎？此操作無法復原。</p>
+                                <div className="flex justify-end gap-2">
+                                    <button onClick={() => setDeleteTargetChat(null)} className="px-4 py-2 rounded-xl text-sm" style={{ background: "var(--gpt-surface-2)" }}>取消</button>
+                                    <button onClick={confirmDeleteConversation} className="px-4 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm">確認刪除</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {chatLoading && (
-                        <div className="fixed inset-0 z-[100002] bg-black/35 backdrop-blur-sm flex items-center justify-center p-4">
-                            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-3xl shadow-2xl px-6 py-5 flex flex-col items-center gap-3">
-                                <div className="w-9 h-9 rounded-full border-4 border-slate-200 border-t-teal-500 animate-spin"></div>
-                                <div className="text-sm font-semibold text-slate-700 dark:text-slate-200">正在載入聊天室...</div>
+                        <div className="gpt-modal-backdrop">
+                            <div className="gpt-modal flex items-center gap-3 max-w-xs">
+                                <div className="w-6 h-6 rounded-full border-2 border-zinc-400 border-t-transparent animate-spin"></div>
+                                <div className="text-sm">正在載入聊天室...</div>
                             </div>
                         </div>
                     )}
-
-
-                    {deleteTargetChat && (
-                        <div className="fixed inset-0 bg-black/60 z-[100001] flex items-center justify-center p-4">
-                            <div className="w-full max-w-sm rounded-3xl bg-[#F8F1E7] dark:bg-slate-900 border border-[#D8CBB5] dark:border-slate-700 shadow-2xl p-6">
-                                <h3 className="text-lg font-bold mb-2">確認刪除聊天室？</h3>
-                                <p className="text-sm text-slate-600 dark:text-slate-400 mb-5">
-                                    確定要刪除「{deleteTargetChat.title || "未命名對話"}」嗎？此操作無法復原。
-                                </p>
-                                <div className="flex gap-3 justify-end">
-                                    <button onClick={() => setDeleteTargetChat(null)} className="px-4 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-sm font-semibold">
-                                        取消
-                                    </button>
-                                    <button onClick={confirmDeleteConversation} className="px-4 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold">
-                                        確認刪除
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
 
                     {previewImage && (
-                        <div
-                            onClick={() => setPreviewImage(null)}
-                            className="fixed inset-0 bg-black/85 z-[100000] flex items-center justify-center p-4 cursor-zoom-out"
-                        >
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    setPreviewImage(null);
-                                }}
-                                className="absolute top-4 right-4 w-11 h-11 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center text-2xl"
-                                aria-label="關閉圖片預覽"
-                            >
-                                ×
-                            </button>
-                            <img
-                                src={previewImage}
-                                className="max-w-full max-h-full rounded-2xl shadow-2xl object-contain"
-                                onClick={(e) => e.stopPropagation()}
-                                alt="圖片預覽"
-                            />
+                        <div onClick={() => setPreviewImage(null)} className="fixed inset-0 bg-black/90 z-[100000] flex items-center justify-center p-4 cursor-zoom-out">
+                            <button onClick={(e) => { e.stopPropagation(); setPreviewImage(null); }} className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white text-2xl">×</button>
+                            <img src={previewImage} className="max-w-full max-h-full rounded-2xl object-contain" onClick={(e) => e.stopPropagation()} alt="圖片預覽" />
                         </div>
                     )}
 
+                    {historyOpen && <div className="gpt-mobile-backdrop md:hidden" onClick={() => setHistoryOpen(false)}></div>}
 
-                    {historyOpen && currentUser && (
-                        <div className="cora-history-backdrop" onClick={() => setHistoryOpen(false)} onWheel={(e) => e.preventDefault()} onTouchMove={(e) => e.preventDefault()}></div>
-                    )}
+                    <aside className={`gpt-sidebar ${historyOpen ? "open" : ""}`}>
+                        <div className="gpt-sidebar-top">
+                            <img src="https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Apple_Icon.png" className="w-8 h-8 rounded-lg object-cover" />
+                            <div className="min-w-0 flex-1">
+                                <div className="text-sm font-semibold truncate">CORA</div>
+                                <div className="text-[11px] text-zinc-400 truncate">AI 藥物解說系統</div>
+                            </div>
+                            <button className="gpt-icon-btn-dark md:hidden" onClick={() => setHistoryOpen(false)}>✕</button>
+                        </div>
 
-                    <aside className={`cora-history-drawer ${historyOpen && currentUser ? "open" : ""} cora-chatgpt-sidebar shadow-2xl p-3 flex flex-col overscroll-contain`}>
-                        <div className="flex items-center justify-between mb-3 px-1">
-                                        <div className="flex items-center gap-2 min-w-0">
-                                            <img src={currentUser?.photoURL || "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Apple_Icon.png"} className="w-8 h-8 rounded-full object-cover" referrerPolicy="no-referrer" />
-                                            <div className="min-w-0">
-                                                <p className="text-sm font-semibold truncate text-white">{currentUser?.displayName || "Google 使用者"}</p>
-                                                <p className="text-[10px] text-zinc-400 truncate">CORA 對話紀錄</p>
-                                            </div>
-                                        </div>
-                                        <button onClick={() => setHistoryOpen(false)} className="w-8 h-8 rounded-lg hover:bg-white/10 text-zinc-300">✕</button>
-                                    </div>
+                        <button type="button" onClick={startNewConversation} className="gpt-new-chat">
+                            <Icon name="plus" size={18} />
+                            <span>新對話</span>
+                        </button>
 
-                                    <button
-                                        type="button"
-                                        onClick={startNewConversation}
-                                        className="mb-3 w-full py-2.5 px-3 rounded-xl border border-white/15 hover:bg-white/10 text-white text-sm font-semibold transition-colors text-left"
-                                    >
-                                        + 新對話
-                                    </button>
-
-                        <div className="flex-1 overflow-y-auto overscroll-contain space-y-2">
+                        <div className="gpt-history-list">
+                            <div className="gpt-history-section-title">最近對話</div>
                             {savedChats.length === 0 && (
-                                <div className="text-xs text-zinc-400 p-3 rounded-xl bg-white/5">
-                                    尚無雲端對話紀錄。
-                                </div>
+                                <div className="text-xs text-zinc-400 px-3 py-2">尚無雲端對話紀錄</div>
                             )}
-
                             {savedChats.map(chat => (
-                                            <div
-                                                key={chat.id}
-                                                className={`cora-chatgpt-item-wrap group w-full flex items-center rounded-xl text-sm transition-colors ${
-                                                    activeSavedChatId === chat.id
-                                                        ? "cora-chatgpt-item active"
-                                                        : "cora-chatgpt-item"
-                                                }`}
-                                            >
-                                                <button
-                                                    type="button"
-                                                    onClick={() => loadConversation(chat)}
-                                                    className="flex-1 text-left px-3 py-2.5 min-w-0 text-zinc-100"
-                                                >
-                                                    <div className="truncate text-sm">{chat.title || "未命名對話"}</div>
-                                                    
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    title="刪除聊天室"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setDeleteTargetChat(chat);
-                                                    }}
-                                                    className="cora-chatgpt-danger w-8 h-8 mr-1 shrink-0 flex items-center justify-center text-zinc-400 hover:bg-red-500 hover:text-white rounded-lg transition-colors"
-                                                >
-                                                    ×
-                                                </button>
-                                            </div>
-                                        ))}
+                                <div key={chat.id} className={`gpt-history-row ${activeSavedChatId === chat.id ? "active" : ""}`}>
+                                    <button type="button" onClick={() => loadConversation(chat)} className="gpt-history-main">
+                                        <div className="gpt-history-title">{chat.title || "未命名對話"}</div>
+                                    </button>
+                                    <button type="button" title="刪除聊天室" onClick={(e) => { e.stopPropagation(); setDeleteTargetChat(chat); }} className="gpt-delete-btn"><Icon name="trash-2" size={15} /></button>
+                                </div>
+                            ))}
                         </div>
 
-                        <div className="pt-3 border-t border-white/10 mt-3">
-                            <button
-                                onClick={signOutGoogle}
-                                className="w-full py-2 rounded-xl bg-white/10 hover:bg-red-600 text-zinc-100 hover:text-white text-sm font-semibold transition-colors"
-                            >
-                                登出 Google 帳號
+                        <div className="gpt-sidebar-footer">
+                            <button title={currentUser ? "開啟個人對話歷史" : "登入 Google 儲存對話"} onClick={() => currentUser ? setHistoryOpen(true) : signInWithGoogle()} className="gpt-user-card">
+                                {currentUser?.photoURL ? <img src={currentUser.photoURL} className="w-8 h-8 rounded-full object-cover" referrerPolicy="no-referrer" /> : <div className="w-8 h-8 rounded-full bg-zinc-700 flex items-center justify-center">👤</div>}
+                                <div className="min-w-0 flex-1">
+                                    <div className="text-sm truncate">{currentUser?.displayName || "登入 Google"}</div>
+                                    <div className="text-[11px] text-zinc-400 truncate">{currentUser ? "已啟用雲端記憶" : "儲存對話紀錄"}</div>
+                                </div>
                             </button>
+                            {currentUser && <button onClick={signOutGoogle} className="gpt-new-chat text-zinc-300"><Icon name="log-out" size={17} /><span>登出</span></button>}
                         </div>
                     </aside>
 
-                    <header className="bg-[#F8F1E7] dark:bg-slate-900 border-b border-[#D8CBB5] dark:border-slate-800 px-4 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
-                        <div className="flex items-center gap-3">
-                            
-<div className="bg-transparent w-12 h-12 shrink-0 flex items-center justify-center rounded-2xl overflow-hidden">
-    <img src="https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Apple_Icon.png" alt="CORA Logo" className="w-12 h-12 rounded-2xl object-cover select-none pointer-events-none" draggable="false" />
-</div>
-                            <div>
-                                <h1 className="text-lg font-bold tracking-tight">CORA AI 藥物解說系統</h1>
-                                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">專業衛教助手 v0.0.3</p>
-                            </div>
-                        </div>
-                        
-<div className="flex items-center gap-2">
-    <button
-        onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-        className="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-[#EADFCC] dark:bg-slate-800 hover:bg-[#DDD0B8] dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors"
-    >
-        <Icon name={theme === "light" ? "moon" : "sun"} size={20} />
-    </button>
-    <button
-        onClick={() => {
-            const nextAudio = !audioEnabled;
-            setAudioEnabled(nextAudio);
-            if (!nextAudio) {
-                window.speechSynthesis?.cancel();
-
-                if (audioRef.current) {
-                    audioRef.current.pause();
-                    audioRef.current = null;
-                }
-
-                if (ttsAudioRef.current) {
-                    ttsAudioRef.current.pause();
-                    ttsAudioRef.current = null;
-                }
-
-                if (mouthTimerRef.current) {
-                    clearInterval(mouthTimerRef.current);
-                    mouthTimerRef.current = null;
-                }
-
-                setIsTalking(false);
-            }
-        }}
-        className={`w-10 h-10 shrink-0 flex items-center justify-center rounded-full transition-colors ${
-            audioEnabled
-                ? "bg-cyan-500/15 dark:bg-cyan-900/30 text-cyan-600"
-                : "bg-[#EADFCC] dark:bg-slate-800 text-slate-400"
-        }`}
-    >
-        <Icon name={audioEnabled ? "volume-2" : "volume-x"} size={20} />
-    </button>
-    <button title={currentUser ? "開啟個人對話歷史" : "登入 Google 儲存對話"} onClick={() => currentUser ? setHistoryOpen(true) : signInWithGoogle()} className="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-[#EADFCC] dark:bg-slate-800 hover:bg-[#DDD0B8] dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors overflow-hidden">
-        {currentUser?.photoURL ? <img src={currentUser.photoURL} alt="Google Avatar" className="w-10 h-10 rounded-full object-cover" referrerPolicy="no-referrer" /> : <span className="text-xl leading-none">👤</span>}
-    </button>
-</div>
-                    </header>
-
-                    <main className="flex-1 max-w-7xl mx-auto w-full p-4 grid grid-cols-1 lg:grid-cols-12 gap-6">
-                        <div className="lg:col-span-4 flex flex-col gap-4 h-[300px] lg:h-auto">
-                            <Character2D isTalking={isTalking} audioEnabled={audioEnabled} />
-                            <div className="bg-[#F8F1E7] dark:bg-slate-900 p-4 rounded-2xl border border-[#D8CBB5] dark:border-slate-800 shadow-sm hidden md:block">
-                                <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed italic">
-                                    「Hi，我是 Cora！您可以詢問我任何關於藥物的問題，我會盡力為您解答。」
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="lg:col-span-8 flex flex-col gap-6 h-full">
-                            <div className="flex-1 bg-[#F8F1E7] dark:bg-slate-900 rounded-3xl border border-[#D8CBB5] dark:border-slate-800 shadow-sm flex flex-col overflow-hidden min-h-[400px]">
-                                <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-4 scroll-smooth">
-                                    {messages.map((msg) => (
-                                        <motion.div key={msg.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`flex gap-3 max-w-[85%] ${msg.role === "user" ? "ml-auto flex-row-reverse" : "mr-auto"}`}>
-                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-sm overflow-hidden ${msg.role === "user" ? "bg-teal-100 text-teal-600" : "bg-[#EADFCC] dark:bg-slate-800 text-slate-600"}`}>
-                                                {msg.role === "user" && currentUser?.photoURL ? (
-                                                    <img
-                                                        src={currentUser.photoURL}
-                                                        alt="User"
-                                                        className="w-full h-full object-cover"
-                                                        referrerPolicy="no-referrer"
-                                                    />
-                                                ) : (
-                                                    <Icon name={msg.role === "user" ? "circle-user-round" : "bot"} size={16} />
-                                                )}
-                                            </div>
-                                            <div className="flex flex-col gap-2">
-                                                {msg.images && msg.images.length > 0 && (
-                                                    <div className={`flex flex-wrap gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                                                        {msg.images.map((img, idx) => (
-                                                            <div key={idx} className="max-w-[120px] rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 shadow-sm">
-                                                                <img src={img} onClick={() => setPreviewImage(img)} className="w-full h-auto object-cover cursor-zoom-in" />
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                                <div className={`p-4 rounded-2xl text-sm leading-relaxed shadow-sm ${msg.role === "user" ? "bg-teal-600 text-white rounded-tr-none" : "bg-[#EADFCC] dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-none"}`}>
-                                                    {msg.content}
-                                                </div>
-                                            </div>
-                                        </motion.div>
-                                    ))}
-                                    {loading && (
-                                        <div className="flex gap-3 mr-auto">
-                                            <div className="w-8 h-8 rounded-full bg-[#EADFCC] dark:bg-slate-800 flex items-center justify-center animate-pulse">
-                                                <Icon name="bot" size={16} className="text-slate-400" />
-                                            </div>
-                                            <div className="bg-[#EADFCC] dark:bg-slate-800 p-4 rounded-2xl rounded-tl-none flex items-center gap-2 shadow-sm">
-                                                <motion.div
-                                                    animate={{ rotate: 360 }}
-                                                    transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }}
-                                                    className="inline-flex"
-                                                >
-                                                    <Icon name="loader-2" size={16} className="text-teal-600" />
-                                                </motion.div>
-                                                <span className="text-sm text-slate-500 dark:text-slate-400 font-medium">Cora 正在查閱資料...</span>
-                                            </div>
-                                        </div>
-                                    )}
+                    <section className="gpt-main">
+                        <header className="gpt-topbar">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <button className="gpt-icon-btn gpt-mobile-menu" onClick={() => setHistoryOpen(true)}><Icon name="panel-left" size={20} /></button>
+                                <div className="min-w-0">
+                                    <div className="gpt-title truncate">CORA AI 藥物解說系統</div>
+                                    <div className="gpt-subtitle truncate">專業衛教助手 · 對話式藥物說明</div>
                                 </div>
+                            </div>
+                            <div className="flex items-center gap-1">
+                                <button onClick={() => setTheme(theme === "light" ? "dark" : "light")} className="gpt-icon-btn" title="切換明暗模式"><Icon name={theme === "light" ? "moon" : "sun"} size={20} /></button>
+                                <button onClick={() => {
+                                    const nextAudio = !audioEnabled;
+                                    setAudioEnabled(nextAudio);
+                                    if (!nextAudio) {
+                                        window.speechSynthesis?.cancel();
+                                        if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+                                        if (ttsAudioRef.current) { ttsAudioRef.current.pause(); ttsAudioRef.current = null; }
+                                        if (mouthTimerRef.current) { clearInterval(mouthTimerRef.current); mouthTimerRef.current = null; }
+                                        setIsTalking(false);
+                                    }
+                                }} className="gpt-icon-btn" title="語音開關"><Icon name={audioEnabled ? "volume-2" : "volume-x"} size={20} /></button>
+                            </div>
+                        </header>
 
-                                <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-[#F3EBDD] dark:bg-slate-900/50">
-                                    <div className="relative flex flex-col gap-2">
-                                        {stagedImages.length > 0 && (
-                                            <div className="flex flex-wrap gap-2 p-2 bg-teal-50 dark:bg-teal-950/30 rounded-xl border border-teal-100 dark:border-teal-900/50">
-                                                {stagedImages.map((img, idx) => (
-                                                    <div key={idx} className="relative w-12 h-12 rounded-lg overflow-hidden border border-teal-200 dark:border-teal-800 shrink-0">
-                                                        <img src={img.data} onClick={() => setPreviewImage(img.data)} className="w-full h-full object-cover cursor-zoom-in" />
-                                                        <button onClick={() => setStagedImages(prev => prev.filter((_, i) => i !== idx))} className="absolute top-0 right-0 bg-teal-600 text-white p-0.5 rounded-bl-lg hover:bg-teal-700">
-                                                            <Icon name="x" size={10} />
-                                                        </button>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                        
-<div className="flex items-center gap-2">
-    <button
-        onClick={startListening}
-        className={`w-12 h-12 shrink-0 flex items-center justify-center rounded-2xl transition-all shadow-sm border ${
-            isListening
-                ? "bg-cyan-500 border-cyan-500 text-white animate-pulse"
-                : "bg-[#F8F1E7] dark:bg-slate-800 border border-cyan-400/70 dark:border-cyan-400/70 text-cyan-500 hover:text-cyan-400"
-        }`}
-    >
-        <Icon name="mic" size={20} />
-    </button>
-    <button
-        onClick={() => cameraInputRef.current?.click()}
-        className="w-12 h-12 shrink-0 flex items-center justify-center rounded-2xl transition-all shadow-sm bg-[#F8F1E7] dark:bg-slate-800 border border-cyan-400/70 dark:border-cyan-400/70 text-cyan-500 hover:text-cyan-400"
-    >
-        <Icon name="camera" size={20} />
-    </button>
-    <button
-        onClick={() => fileInputRef.current?.click()}
-        className="w-12 h-12 shrink-0 flex items-center justify-center rounded-2xl transition-all shadow-sm bg-[#F8F1E7] dark:bg-slate-800 border border-cyan-400/70 dark:border-cyan-400/70 text-cyan-500 hover:text-cyan-400"
-    >
-        <Icon name="image" size={20} />
-    </button>
-    <div className="relative flex-1">
-                                                <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" multiple onChange={handleFileChange} className="hidden" />
-                                                <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
-                                                <input type="text" disabled={loading} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => {
-                                                    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                                                        e.preventDefault();
-                                                        if (!loading && !sendingRef.current) handleSend();
-                                                    }
-                                                }} placeholder="詢問藥物資訊，或上傳藥盒/藥錠圖片..." className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all shadow-sm" />
-                                                <button onClick={() => handleSend()} disabled={loading} className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 shrink-0 flex items-center justify-center bg-cyan-500 text-white rounded-xl hover:bg-cyan-600 disabled:opacity-50 transition-colors shadow-sm">
-                                                    <Icon name="send" size={16} />
-                                                </button>
-                                            </div>
+                        <div ref={scrollRef} className="gpt-chat">
+                            {messages.map((msg) => (
+                                <motion.div key={msg.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className={`gpt-message-row ${msg.role === "user" ? "gpt-user-row" : ""}`}>
+                                    <div className="gpt-message-inner">
+                                        <div className={`gpt-avatar ${msg.role === "assistant" ? "assistant" : ""}`}>
+                                            {msg.role === "user" && currentUser?.photoURL ? <img src={currentUser.photoURL} className="w-full h-full object-cover" referrerPolicy="no-referrer" /> : <Icon name={msg.role === "user" ? "user" : "sparkles"} size={16} />}
+                                        </div>
+                                        <div className={`gpt-bubble ${msg.role === "user" ? "gpt-user-bubble" : ""}`}>
+                                            {msg.images && msg.images.length > 0 && (
+                                                <div className="gpt-images">
+                                                    {msg.images.map((img, idx) => <img key={idx} src={img} onClick={() => setPreviewImage(img)} className="gpt-image-thumb" />)}
+                                                </div>
+                                            )}
+                                            {msg.content}
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            ))}
+
+                            {loading && (
+                                <div className="gpt-message-row">
+                                    <div className="gpt-message-inner">
+                                        <div className="gpt-avatar assistant"><Icon name="sparkles" size={16} /></div>
+                                        <div className="gpt-bubble flex items-center gap-2">
+                                            <span>Cora 正在查閱資料</span>
+                                            <span className="gpt-loading-dots"><span></span><span></span><span></span></span>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
+                            )}
 
-                            <AnimatePresence>
-                                {medicationInfo && (
-                                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="bg-[#F8F1E7] dark:bg-slate-900 rounded-3xl border border-[#D8CBB5] dark:border-slate-800 shadow-xl overflow-hidden">
-                                        <div className="bg-teal-600 px-6 py-3 flex items-center justify-between">
-                                            <div className="flex items-center gap-2 text-white">
-                                                <Icon name="info" size={20} />
-                                                <h2 className="font-semibold">藥物詳細資訊卡</h2>
-                                            </div>
-                                            {medicationInfo.reference_image_query && (
-                                                <a href={`https://www.google.com/search?q=${encodeURIComponent(medicationInfo.reference_image_query)}&tbm=isch`} target="_blank" className="flex items-center gap-1 text-xs bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-xl transition-colors">
-                                                    <Icon name="search" size={12} />
-                                                    <span>查看參考圖片</span>
-                                                    <Icon name="external-link" size={10} />
-                                                </a>
-                                            )}
-                                        </div>
-                                        <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-                                            <div className="space-y-2 bg-teal-50/30 dark:bg-teal-900/10 p-4 rounded-2xl border border-teal-100/50">
-                                                <div className="flex items-center gap-2 text-teal-600 font-bold text-sm">
-                                                    <Icon name="pill" size={16} />
-                                                    <h3>主要成分</h3>
-                                                </div>
-                                                <ul className="list-disc pl-5 text-xs text-slate-600 dark:text-slate-400 space-y-1">
-                                                    {(medicationInfo.ingredients && medicationInfo.ingredients.length ? medicationInfo.ingredients : ["可於對話回答中查看重點說明"]).map((item, idx) => <li key={idx}>{item}</li>)}
-                                                </ul>
-                                            </div>
-                                            <div className="space-y-2 bg-emerald-50/30 dark:bg-emerald-900/10 p-4 rounded-2xl border border-emerald-100/50">
-                                                <div className="flex items-center gap-2 text-emerald-600 font-bold text-sm">
-                                                    <Icon name="shield-alert" size={16} />
-                                                    <h3>適應症</h3>
-                                                </div>
-                                                <ul className="list-disc pl-5 text-xs text-slate-600 dark:text-slate-400 space-y-1">
-                                                    {(medicationInfo.indications && medicationInfo.indications.length ? medicationInfo.indications : ["可於對話回答中查看重點說明"]).map((item, idx) => <li key={idx}>{item}</li>)}
-                                                </ul>
-                                            </div>
-                                            <div className="space-y-2 bg-amber-50/30 dark:bg-amber-900/10 p-4 rounded-2xl border border-amber-100/50">
-                                                <div className="flex items-center gap-2 text-amber-500 font-bold text-sm">
-                                                    <Icon name="shield-alert" size={16} />
-                                                    <h3>常見副作用</h3>
-                                                </div>
-                                                <ul className="list-disc pl-5 text-xs text-slate-600 dark:text-slate-400 space-y-1">
-                                                    {(medicationInfo.side_effects && medicationInfo.side_effects.length ? medicationInfo.side_effects : ["若有不適或特殊疾病，建議諮詢醫師或藥師"]).map((item, idx) => <li key={idx}>{item}</li>)}
-                                                </ul>
-                                            </div>
-                                            <div className="space-y-2 bg-red-50/30 dark:bg-red-900/10 p-4 rounded-2xl border border-red-100/50">
-                                                <div className="flex items-center gap-2 text-red-600 font-bold text-sm">
-                                                    <Icon name="shield-alert" size={16} />
-                                                    <h3>禁忌與注意事項</h3>
-                                                </div>
-                                                <ul className="list-disc pl-5 text-xs text-slate-600 dark:text-slate-400 space-y-1">
-                                                    {(medicationInfo.warnings && medicationInfo.warnings.length ? medicationInfo.warnings : ["本系統僅供衛教參考，實際用藥請依醫囑與藥袋標示"]).map((item, idx) => <li key={idx}>{item}</li>)}
-                                                </ul>
-                                            </div>
-                                        </div>
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
+                            {medicationInfo && (
+                                <div className="gpt-card">
+                                    <div className="gpt-card-head">
+                                        <div className="flex items-center gap-2 font-semibold"><Icon name="info" size={18} />藥物詳細資訊卡</div>
+                                        {medicationInfo.reference_image_query && (
+                                            <a href={`https://www.google.com/search?q=${encodeURIComponent(medicationInfo.reference_image_query)}&tbm=isch`} target="_blank" className="text-xs underline" style={{ color: "var(--gpt-muted)" }}>查看參考圖片</a>
+                                        )}
+                                    </div>
+                                    <div className="gpt-card-grid">
+                                        <div className="gpt-card-section"><h3><Icon name="pill" size={15} />主要成分</h3><ul>{(medicationInfo.ingredients && medicationInfo.ingredients.length ? medicationInfo.ingredients : ["可於對話回答中查看重點說明"]).map((item, idx) => <li key={idx}>{item}</li>)}</ul></div>
+                                        <div className="gpt-card-section"><h3><Icon name="shield-alert" size={15} />適應症</h3><ul>{(medicationInfo.indications && medicationInfo.indications.length ? medicationInfo.indications : ["可於對話回答中查看重點說明"]).map((item, idx) => <li key={idx}>{item}</li>)}</ul></div>
+                                        <div className="gpt-card-section"><h3><Icon name="triangle-alert" size={15} />常見副作用</h3><ul>{(medicationInfo.side_effects && medicationInfo.side_effects.length ? medicationInfo.side_effects : ["若有不適或特殊疾病，建議諮詢醫師或藥師"]).map((item, idx) => <li key={idx}>{item}</li>)}</ul></div>
+                                        <div className="gpt-card-section"><h3><Icon name="badge-alert" size={15} />禁忌與注意事項</h3><ul>{(medicationInfo.warnings && medicationInfo.warnings.length ? medicationInfo.warnings : ["本系統僅供衛教參考，實際用藥請依醫囑與藥袋標示"]).map((item, idx) => <li key={idx}>{item}</li>)}</ul></div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
-                    </main>
 
-                    
+                        <div className="cora-floating-avatar">
+                            <div className="cora-floating-avatar-label">CORA</div>
+                            <Character2D isTalking={isTalking} audioEnabled={audioEnabled} />
+                        </div>
 
-                    <footer className="py-4 text-center text-slate-400 text-[10px]">
-                        © 2026 CORA AI 藥物解說系統 · 本系統僅供參考，請務必諮詢醫師或藥師
-                    </footer>
+                        <div className="gpt-composer-wrap">
+                            <div className="gpt-composer">
+                                {stagedImages.length > 0 && (
+                                    <div className="gpt-staged">
+                                        {stagedImages.map((img, idx) => (
+                                            <div key={idx} className="gpt-staged-item">
+                                                <img src={img.data} onClick={() => setPreviewImage(img.data)} className="w-full h-full object-cover cursor-zoom-in" />
+                                                <button onClick={() => setStagedImages(prev => prev.filter((_, i) => i !== idx))} className="gpt-staged-remove"><Icon name="x" size={11} /></button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                <div className="gpt-input-row">
+                                    <button onClick={startListening} className="gpt-icon-btn" title="語音輸入"><Icon name={isListening ? "radio" : "mic"} size={20} /></button>
+                                    <button onClick={() => cameraInputRef.current?.click()} className="gpt-icon-btn" title="拍照"><Icon name="camera" size={20} /></button>
+                                    <button onClick={() => fileInputRef.current?.click()} className="gpt-icon-btn" title="上傳圖片"><Icon name="image" size={20} /></button>
+                                    <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" multiple onChange={handleFileChange} className="hidden" />
+                                    <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
+                                    <input type="text" disabled={loading} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!loading && !sendingRef.current) handleSend(); } }} placeholder="傳訊息給 CORA" className="gpt-text-input" />
+                                    <button onClick={() => handleSend()} disabled={loading || (!input.trim() && stagedImages.length === 0)} className="gpt-send" title="送出"><Icon name="arrow-up" size={18} /></button>
+                                </div>
+                            </div>
+                            <div className="gpt-disclaimer">CORA 可能會出錯。本系統僅供衛教參考，實際用藥請務必諮詢醫師或藥師。</div>
+                        </div>
+                    </section>
                 </div>
             );
         }
