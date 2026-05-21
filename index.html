@@ -120,6 +120,13 @@
         .gpt-card-section { border:1px solid var(--gpt-border); border-radius:14px; padding:12px; background:var(--gpt-bg); }
         .gpt-card-section h3 { font-size:13px; font-weight:700; margin:0 0 8px; display:flex; align-items:center; gap:6px; }
         .gpt-card-section ul { margin:0; padding-left:18px; color:var(--gpt-muted); font-size:12px; line-height:1.6; }
+
+        .gpt-card-title-btn { display:flex; align-items:center; gap:8px; border:0; background:transparent; color:var(--gpt-text); padding:0; font:inherit; font-weight:600; cursor:default; }
+        .gpt-card-toggle { display:none; align-items:center; justify-content:center; width:24px; height:24px; border-radius:999px; color:var(--gpt-muted); transition:transform .16s ease, background .16s ease, color .16s ease; }
+        .gpt-card-toggle svg { transition:transform .16s ease; }
+        .gpt-card.collapsed .gpt-card-toggle svg { transform:rotate(-90deg); }
+        .gpt-card.collapsed .gpt-card-grid { display:none; }
+        .gpt-card.collapsed .gpt-card-head { border-bottom:0; }
         .gpt-loading-dots span { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--gpt-muted); margin-right:4px; animation:gptDot 1s infinite ease-in-out; }
         .gpt-loading-dots span:nth-child(2){ animation-delay:.15s; } .gpt-loading-dots span:nth-child(3){ animation-delay:.3s; }
         @keyframes gptDot { 0%,80%,100%{ opacity:.3; transform:translateY(0);} 40%{ opacity:1; transform:translateY(-3px);} }
@@ -244,6 +251,299 @@
             .gpt-message-inner { gap: 10px; }
             .gpt-user-bubble { max-width: 82%; }
             .gpt-composer-wrap { padding-left: 10px; padding-right: 10px; }
+        }
+
+
+        /* v5 fixes: readable light mode, adaptive image bubbles, mobile avatar box */
+        body:not(.dark) .text-zinc-100,
+        body:not(.dark) .text-zinc-200,
+        body:not(.dark) .text-zinc-300,
+        body:not(.dark) .text-zinc-400,
+        body:not(.dark) .text-slate-100,
+        body:not(.dark) .text-slate-200,
+        body:not(.dark) .text-slate-300,
+        body:not(.dark) .text-slate-400,
+        body:not(.dark) .text-white { color: var(--gpt-text) !important; }
+        body:not(.dark) .gpt-history-section-title,
+        body:not(.dark) .gpt-subtitle,
+        body:not(.dark) .gpt-disclaimer,
+        body:not(.dark) .gpt-card-section ul,
+        body:not(.dark) .gpt-muted-text { color: var(--gpt-muted) !important; }
+        body:not(.dark) .gpt-user-card { color: var(--gpt-text) !important; }
+        body:not(.dark) .gpt-user-card .text-\[11px\] { color: var(--gpt-muted) !important; }
+        body:not(.dark) .gpt-sidebar-footer { border-top-color: var(--gpt-border); }
+
+        .gpt-bubble:has(.gpt-images) { width: fit-content; }
+        .gpt-user-bubble:has(.gpt-images) { max-width: min(76%, 440px); padding: 8px; border-radius: 20px; }
+        .gpt-images:has(img:only-child) { display:block; margin-bottom: 6px; }
+        .gpt-images:has(img:only-child) .gpt-image-thumb { width:auto; max-width:min(340px, 64vw); max-height:360px; object-fit:contain; display:block; border-radius:16px; }
+        .gpt-images .gpt-image-thumb { height:auto; object-fit:contain; }
+
+        /* v6 mobile avatar: align to composer left edge and keep a clear gap above input */
+        @media (max-width: 1023px) {
+            .cora-floating-avatar-label { display:none !important; }
+            .cora-floating-avatar {
+                left: 14px !important;
+                right: auto !important;
+                top: auto !important;
+                bottom: 104px !important;
+                transform: none !important;
+                width: 118px !important;
+                height: 152px !important;
+                border: 1px solid var(--gpt-border) !important;
+                border-radius: 18px !important;
+                background: var(--gpt-surface) !important;
+                box-shadow: 0 10px 26px rgba(0,0,0,.16) !important;
+                overflow: hidden !important;
+                pointer-events: none;
+                z-index: 3;
+            }
+            .cora-floating-avatar > div:last-child,
+            .cora-floating-avatar > div:last-child > div {
+                border-radius: 18px !important;
+                background: var(--gpt-surface) !important;
+                overflow: hidden !important;
+            }
+            .gpt-chat { padding-top: 18px !important; padding-bottom: 300px !important; }
+            .gpt-composer-wrap { z-index: 6; }
+        }
+        @media (max-width: 640px) {
+            .cora-floating-avatar { left: 14px !important; bottom: 100px !important; width: 112px !important; height: 146px !important; }
+            .gpt-user-bubble:has(.gpt-images) { max-width: min(86%, 340px); }
+            .gpt-images:has(img:only-child) .gpt-image-thumb { max-width:min(260px, 72vw); max-height:300px; }
+        }
+
+
+        /* v7 fixes: compatible icons, adaptive message/image bubbles, mobile card below input */
+        .gpt-user-bubble {
+            flex: 0 1 auto;
+            width: fit-content;
+            max-width: min(70%, 760px);
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+        .gpt-bubble.gpt-has-images {
+            width: fit-content;
+            max-width: min(76%, 460px);
+        }
+        .gpt-user-bubble.gpt-has-images {
+            padding: 8px;
+            border-radius: 20px;
+        }
+        .gpt-message-text {
+            display: block;
+            width: fit-content;
+            max-width: 100%;
+        }
+        .gpt-images {
+            max-width: 100%;
+            align-items: flex-start;
+        }
+        .gpt-images.single-image {
+            display: block;
+            width: fit-content;
+        }
+        .gpt-images.single-image .gpt-image-thumb {
+            display: block;
+            width: auto;
+            height: auto;
+            max-width: min(360px, 68vw);
+            max-height: 380px;
+            object-fit: contain;
+        }
+        .gpt-images.multi-image .gpt-image-thumb {
+            width: auto;
+            height: auto;
+            max-width: 150px;
+            max-height: 150px;
+            object-fit: contain;
+        }
+        .gpt-card-in-chat { display: block; }
+        .gpt-card-under-input { display: none; }
+        @media (max-width: 768px) {
+            .gpt-user-bubble { max-width: min(86%, 360px); }
+            .gpt-bubble.gpt-has-images { max-width: min(88%, 360px); }
+            .gpt-images.single-image .gpt-image-thumb { max-width: min(280px, 72vw); max-height: 300px; }
+            .gpt-images.multi-image .gpt-image-thumb { max-width: 118px; max-height: 118px; }
+            .gpt-card-in-chat { display: none !important; }
+            .gpt-card-under-input { display: block; margin-top: 10px; }
+            .gpt-card-under-input .gpt-card { margin: 0 auto; max-height: 38vh; overflow-y: auto; border-radius: 18px; }
+            .gpt-card-under-input .gpt-card-head { padding: 11px 12px; }
+            .gpt-card-under-input .gpt-card-grid { padding: 12px; gap: 10px; }
+            .gpt-card-under-input .gpt-card-section { padding: 10px; }
+
+            .gpt-card-under-input .gpt-card-title-btn { cursor:pointer; }
+            .gpt-card-under-input .gpt-card-toggle { display:flex; }
+            .gpt-card-under-input .gpt-card-title-btn:hover .gpt-card-toggle { background:var(--gpt-surface-2); color:var(--gpt-text); }
+            .gpt-card-under-input .gpt-card.collapsed { max-height:none; overflow:visible; }
+            .gpt-composer-wrap { max-height: 68vh; overflow-y: auto; }
+            .gpt-chat { padding-bottom: 360px !important; }
+        }
+
+
+        /* v9 fixes: persistent mobile avatar and responsive desktop chat area */
+        @media (min-width: 1024px) {
+            .gpt-main { overflow: hidden; }
+            .gpt-message-inner,
+            .gpt-card,
+            .gpt-composer,
+            .gpt-disclaimer {
+                margin-left: clamp(260px, 28vw, 430px) !important;
+                margin-right: clamp(16px, 4vw, 72px) !important;
+                max-width: none !important;
+                width: auto !important;
+            }
+            .cora-floating-avatar {
+                position: absolute !important;
+                left: clamp(20px, 4vw, 64px) !important;
+                width: clamp(230px, 24vw, 360px) !important;
+                height: clamp(300px, 31vw, 460px) !important;
+            }
+        }
+        @media (min-width: 1024px) and (max-width: 1240px) {
+            .gpt-message-inner,
+            .gpt-card,
+            .gpt-composer,
+            .gpt-disclaimer {
+                margin-left: clamp(215px, 25vw, 300px) !important;
+                margin-right: 18px !important;
+            }
+            .cora-floating-avatar {
+                left: 18px !important;
+                width: clamp(190px, 22vw, 250px) !important;
+                height: clamp(250px, 29vw, 330px) !important;
+            }
+        }
+        @media (max-width: 1023px) {
+            .cora-floating-avatar {
+                position: fixed !important;
+                left: 14px !important;
+                right: auto !important;
+                top: auto !important;
+                bottom: calc(96px + env(safe-area-inset-bottom)) !important;
+                transform: none !important;
+                width: 108px !important;
+                height: 142px !important;
+                z-index: 30 !important;
+                pointer-events: none !important;
+            }
+            .gpt-composer-wrap { z-index: 20 !important; }
+            .gpt-chat { padding-bottom: 280px !important; }
+        }
+        @media (max-width: 768px) {
+            .cora-floating-avatar {
+                bottom: calc(100px + env(safe-area-inset-bottom)) !important;
+                width: 104px !important;
+                height: 136px !important;
+            }
+            .gpt-chat { padding-bottom: 330px !important; }
+        }
+        @media (max-width: 390px) {
+            .cora-floating-avatar {
+                left: 10px !important;
+                bottom: calc(94px + env(safe-area-inset-bottom)) !important;
+                width: 96px !important;
+                height: 126px !important;
+            }
+        }
+
+
+        /* v10 fixes: mobile avatar stays between latest message and composer, mouth stops 0.8s early */
+        @media (max-width: 1023px) {
+            .cora-floating-avatar {
+                position: fixed !important;
+                left: 16px !important;
+                right: auto !important;
+                top: auto !important;
+                bottom: calc(92px + env(safe-area-inset-bottom)) !important;
+                width: 106px !important;
+                height: 138px !important;
+                z-index: 18 !important;
+                pointer-events: none !important;
+            }
+            .gpt-composer-wrap {
+                position: sticky !important;
+                bottom: 0 !important;
+                z-index: 24 !important;
+            }
+            .gpt-chat {
+                padding-bottom: 268px !important;
+                scroll-padding-bottom: 268px !important;
+            }
+        }
+        @media (max-width: 480px) {
+            .cora-floating-avatar {
+                left: 28px !important;
+                bottom: calc(88px + env(safe-area-inset-bottom)) !important;
+                width: 102px !important;
+                height: 134px !important;
+            }
+            .gpt-chat {
+                padding-bottom: 280px !important;
+                scroll-padding-bottom: 280px !important;
+            }
+        }
+        @media (max-width: 390px) {
+            .cora-floating-avatar {
+                left: 18px !important;
+                bottom: calc(86px + env(safe-area-inset-bottom)) !important;
+                width: 96px !important;
+                height: 126px !important;
+            }
+        }
+
+
+
+
+        /* v13 fixes: card collapse state is controlled by App state, so TTS mouth animation rerenders will not reset it. */
+        .gpt-card-title-btn,
+        .gpt-card-toggle { pointer-events: auto !important; touch-action: manipulation; }
+        .gpt-card-head { position: relative; z-index: 50; }
+        .gpt-card-under-input { position: relative; z-index: 30; }
+
+        /* v11 mobile: avatar becomes a normal bottom chat item, not a fixed overlay */
+        .cora-mobile-avatar-message { display:none; }
+        @media (max-width: 1023px) {
+            .cora-floating-avatar { display:none !important; }
+            .cora-mobile-avatar-message {
+                display:flex;
+                justify-content:flex-start;
+                padding: 8px 14px 18px;
+            }
+            .cora-mobile-avatar-box {
+                width: 118px;
+                height: 154px;
+                border: 1px solid var(--gpt-border);
+                border-radius: 20px;
+                background: var(--gpt-surface);
+                overflow: hidden;
+                box-shadow: 0 10px 26px rgba(0,0,0,.14);
+                pointer-events: none;
+            }
+            .cora-mobile-avatar-box > div,
+            .cora-mobile-avatar-box > div > div {
+                width: 100%;
+                height: 100%;
+                border-radius: 20px !important;
+                background: var(--gpt-surface) !important;
+                overflow: hidden !important;
+            }
+            .gpt-chat {
+                padding-bottom: 140px !important;
+                scroll-padding-bottom: 150px !important;
+            }
+            .gpt-composer-wrap {
+                position: sticky !important;
+                bottom: 0 !important;
+                z-index: 24 !important;
+            }
+        }
+        @media (max-width: 480px) {
+            .cora-mobile-avatar-message { padding-left: 28px; padding-bottom: 18px; }
+            .cora-mobile-avatar-box { width: 104px; height: 136px; border-radius: 18px; }
+            .cora-mobile-avatar-box > div,
+            .cora-mobile-avatar-box > div > div { border-radius: 18px !important; }
+            .gpt-chat { padding-bottom: 130px !important; scroll-padding-bottom: 140px !important; }
         }
 
         </style>
@@ -409,14 +709,10 @@ class OpenAI {
                             </AnimatePresence>
 
                             {mouthActive && (
-                                <motion.img
+                                <img
                                     key="mouth-open"
                                     src={avatarMouthOpen}
                                     alt=""
-                                    initial={{ opacity: 1 }}
-                                    animate={{ opacity: [0, 1, 1, 0] }}
-                                    exit={{ opacity: 0 }}
-                                    transition={{ duration: 0.28, repeat: Infinity, ease: "easeInOut" }}
                                     className="absolute inset-0 w-full h-full object-contain select-none pointer-events-none"
                                     style={{ opacity: 1 }}
                                     draggable="false"
@@ -450,11 +746,18 @@ class OpenAI {
             
             const [stagedImages, setStagedImages] = useState([]);
             const [medicationInfo, setMedicationInfo] = useState(null);
+            const [cardCollapsed, setCardCollapsed] = useState(false);
             const [isListening, setIsListening] = useState(false);
 
             const scrollRef = useRef(null);
             const audioRef = useRef(null);
             const mouthTimerRef = useRef(null);
+            const mouthRafRef = useRef(null);
+            const mouthAudioContextRef = useRef(null);
+            const mouthAnalyserRef = useRef(null);
+            const mouthDataRef = useRef(null);
+            const mouthLastStateRef = useRef(false);
+            const mouthEarlyStopRef = useRef(null);
             const ttsAudioRef = useRef(null);
             const fileInputRef = useRef(null);
             const cameraInputRef = useRef(null);
@@ -684,23 +987,96 @@ class OpenAI {
 
             const speakLocal = async (text) => {
 
+                const setMouthInstant = (open) => {
+                    if (mouthLastStateRef.current !== open) {
+                        mouthLastStateRef.current = open;
+                        setIsTalking(open);
+                    }
+                };
+
                 const stopMouth = () => {
-                    setIsTalking(false);
+                    setMouthInstant(false);
 
                     if (mouthTimerRef.current) {
                         clearInterval(mouthTimerRef.current);
                         mouthTimerRef.current = null;
                     }
+
+                    if (mouthRafRef.current) {
+                        cancelAnimationFrame(mouthRafRef.current);
+                        mouthRafRef.current = null;
+                    }
+
+                    if (mouthEarlyStopRef.current) {
+                        clearTimeout(mouthEarlyStopRef.current);
+                        mouthEarlyStopRef.current = null;
+                    }
                 };
 
-                const startAnimeMouth = () => {
+                const startVolumeMouth = async (audio) => {
                     stopMouth();
-                    setIsTalking(true);
 
-                    // 動漫感：慢速開合，不做高速閃爍
+                    try {
+                        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                        if (!AudioContextClass || !audio) throw new Error("AudioContext unavailable");
+
+                        const ctx = mouthAudioContextRef.current || new AudioContextClass();
+                        mouthAudioContextRef.current = ctx;
+                        if (ctx.state === "suspended") await ctx.resume();
+
+                        if (!audio._coraMouthSource) {
+                            audio._coraMouthSource = ctx.createMediaElementSource(audio);
+                        }
+
+                        const analyser = ctx.createAnalyser();
+                        analyser.fftSize = 256;
+                        analyser.smoothingTimeConstant = 0.12;
+                        audio._coraMouthSource.connect(analyser);
+                        analyser.connect(ctx.destination);
+
+                        mouthAnalyserRef.current = analyser;
+                        mouthDataRef.current = new Uint8Array(analyser.frequencyBinCount);
+
+                        const tick = () => {
+                            if (!audioEnabled || audio.paused || audio.ended) {
+                                stopMouth();
+                                return;
+                            }
+
+                            // 讓嘴巴比語音結束早 0.8 秒閉上，避免結尾延遲。音訊本身仍正常播放到結束。
+                            if (Number.isFinite(audio.duration) && audio.duration > 0 && (audio.duration - audio.currentTime) <= 0.8) {
+                                stopMouth();
+                                return;
+                            }
+
+                            analyser.getByteTimeDomainData(mouthDataRef.current);
+                            let sum = 0;
+                            for (let i = 0; i < mouthDataRef.current.length; i++) {
+                                const v = mouthDataRef.current[i] - 128;
+                                sum += v * v;
+                            }
+                            const volume = Math.sqrt(sum / mouthDataRef.current.length) / 128;
+
+                            // 1 / 0 瞬間口型：有聲音立即張嘴，停頓立即閉嘴。
+                            setMouthInstant(volume > 0.018);
+                            mouthRafRef.current = requestAnimationFrame(tick);
+                        };
+
+                        tick();
+                    } catch (err) {
+                        console.warn("音量偵測失敗，改用快速 1/0 嘴型：", err);
+                        stopMouth();
+                        mouthTimerRef.current = setInterval(() => {
+                            setMouthInstant(!mouthLastStateRef.current);
+                        }, 90);
+                    }
+                };
+
+                const startSynthMouth = () => {
+                    stopMouth();
                     mouthTimerRef.current = setInterval(() => {
-                        setIsTalking(v => !v);
-                    }, 360);
+                        setMouthInstant(!mouthLastStateRef.current);
+                    }, 90);
                 };
 
                 try {
@@ -738,7 +1114,7 @@ class OpenAI {
                     ttsAudioRef.current = audio;
 
                     audio.onplay = () => {
-                        if (audioEnabled) startAnimeMouth();
+                        if (audioEnabled) startVolumeMouth(audio);
                     };
 
                     audio.onended = stopMouth;
@@ -774,7 +1150,11 @@ class OpenAI {
                     }
 
                     utterance.onstart = () => {
-                        if (audioEnabled) startAnimeMouth();
+                        if (audioEnabled) {
+                            startSynthMouth();
+                            const estimatedMs = Math.max(900, (String(text).length / 5.8) * 1000 - 800);
+                            mouthEarlyStopRef.current = setTimeout(() => setMouthInstant(false), estimatedMs);
+                        }
                     };
 
                     utterance.onend = stopMouth;
@@ -926,7 +1306,38 @@ class OpenAI {
                 }
             };
 
+                const MedicationCard = () => {
+                if (!medicationInfo) return null;
                 return (
+                    <div className={`gpt-card ${cardCollapsed ? "collapsed" : ""}`}>
+                        <div className="gpt-card-head">
+                            <button
+                                type="button"
+                                className="gpt-card-title-btn"
+                                onClick={() => setCardCollapsed(prev => !prev)}
+                                aria-expanded={!cardCollapsed}
+                            >
+                                <Icon name="info" size={18} />
+                                <span>藥物詳細資訊卡</span>
+                                <span className="gpt-card-toggle" aria-hidden="true"><Icon name="chevron-down" size={17} /></span>
+                            </button>
+                            {!cardCollapsed && medicationInfo.reference_image_query && (
+                                <a href={`https://www.google.com/search?q=${encodeURIComponent(medicationInfo.reference_image_query)}&tbm=isch`} target="_blank" className="text-xs underline" style={{ color: "var(--gpt-muted)" }}>查看參考圖片</a>
+                            )}
+                        </div>
+                        {!cardCollapsed && (
+                            <div className="gpt-card-grid">
+                                <div className="gpt-card-section"><h3><Icon name="pill" size={15} />主要成分</h3><ul>{(medicationInfo.ingredients && medicationInfo.ingredients.length ? medicationInfo.ingredients : ["可於對話回答中查看重點說明"]).map((item, idx) => <li key={idx}>{item}</li>)}</ul></div>
+                                <div className="gpt-card-section"><h3><Icon name="shield-alert" size={15} />適應症</h3><ul>{(medicationInfo.indications && medicationInfo.indications.length ? medicationInfo.indications : ["可於對話回答中查看重點說明"]).map((item, idx) => <li key={idx}>{item}</li>)}</ul></div>
+                                <div className="gpt-card-section"><h3><Icon name="alert-triangle" size={15} />常見副作用</h3><ul>{(medicationInfo.side_effects && medicationInfo.side_effects.length ? medicationInfo.side_effects : ["若有不適或特殊疾病，建議諮詢醫師或藥師"]).map((item, idx) => <li key={idx}>{item}</li>)}</ul></div>
+                                <div className="gpt-card-section"><h3><Icon name="badge-alert" size={15} />禁忌與注意事項</h3><ul>{(medicationInfo.warnings && medicationInfo.warnings.length ? medicationInfo.warnings : ["本系統僅供衛教參考，實際用藥請依醫囑與藥袋標示"]).map((item, idx) => <li key={idx}>{item}</li>)}</ul></div>
+                            </div>
+                        )}
+                    </div>
+                );
+            };
+
+            return (
                 <div className="gpt-shell">
                     {deleteTargetChat && (
                         <div className="gpt-modal-backdrop">
@@ -1033,13 +1444,13 @@ class OpenAI {
                                         <div className={`gpt-avatar ${msg.role === "assistant" ? "assistant" : ""}`}>
                                             {msg.role === "user" && currentUser?.photoURL ? <img src={currentUser.photoURL} className="w-full h-full object-cover" referrerPolicy="no-referrer" /> : <Icon name={msg.role === "user" ? "user" : "sparkles"} size={16} />}
                                         </div>
-                                        <div className={`gpt-bubble ${msg.role === "user" ? "gpt-user-bubble" : ""}`}>
+                                        <div className={`gpt-bubble ${msg.role === "user" ? "gpt-user-bubble" : ""} ${msg.images && msg.images.length > 0 ? "gpt-has-images" : ""}`}>
                                             {msg.images && msg.images.length > 0 && (
-                                                <div className="gpt-images">
+                                                <div className={`gpt-images ${msg.images.length === 1 ? "single-image" : "multi-image"}`}>
                                                     {msg.images.map((img, idx) => <img key={idx} src={img} onClick={() => setPreviewImage(img)} className="gpt-image-thumb" />)}
                                                 </div>
                                             )}
-                                            {msg.content}
+                                            {msg.content && <span className="gpt-message-text">{msg.content}</span>}
                                         </div>
                                     </div>
                                 </motion.div>
@@ -1057,20 +1468,15 @@ class OpenAI {
                                 </div>
                             )}
 
+                            <div className="cora-mobile-avatar-message">
+                                <div className="cora-mobile-avatar-box">
+                                    <Character2D isTalking={isTalking} audioEnabled={audioEnabled} />
+                                </div>
+                            </div>
+
                             {medicationInfo && (
-                                <div className="gpt-card">
-                                    <div className="gpt-card-head">
-                                        <div className="flex items-center gap-2 font-semibold"><Icon name="info" size={18} />藥物詳細資訊卡</div>
-                                        {medicationInfo.reference_image_query && (
-                                            <a href={`https://www.google.com/search?q=${encodeURIComponent(medicationInfo.reference_image_query)}&tbm=isch`} target="_blank" className="text-xs underline" style={{ color: "var(--gpt-muted)" }}>查看參考圖片</a>
-                                        )}
-                                    </div>
-                                    <div className="gpt-card-grid">
-                                        <div className="gpt-card-section"><h3><Icon name="pill" size={15} />主要成分</h3><ul>{(medicationInfo.ingredients && medicationInfo.ingredients.length ? medicationInfo.ingredients : ["可於對話回答中查看重點說明"]).map((item, idx) => <li key={idx}>{item}</li>)}</ul></div>
-                                        <div className="gpt-card-section"><h3><Icon name="shield-alert" size={15} />適應症</h3><ul>{(medicationInfo.indications && medicationInfo.indications.length ? medicationInfo.indications : ["可於對話回答中查看重點說明"]).map((item, idx) => <li key={idx}>{item}</li>)}</ul></div>
-                                        <div className="gpt-card-section"><h3><Icon name="triangle-alert" size={15} />常見副作用</h3><ul>{(medicationInfo.side_effects && medicationInfo.side_effects.length ? medicationInfo.side_effects : ["若有不適或特殊疾病，建議諮詢醫師或藥師"]).map((item, idx) => <li key={idx}>{item}</li>)}</ul></div>
-                                        <div className="gpt-card-section"><h3><Icon name="badge-alert" size={15} />禁忌與注意事項</h3><ul>{(medicationInfo.warnings && medicationInfo.warnings.length ? medicationInfo.warnings : ["本系統僅供衛教參考，實際用藥請依醫囑與藥袋標示"]).map((item, idx) => <li key={idx}>{item}</li>)}</ul></div>
-                                    </div>
+                                <div className="gpt-card-in-chat">
+                                    <MedicationCard />
                                 </div>
                             )}
                         </div>
@@ -1103,6 +1509,11 @@ class OpenAI {
                                 </div>
                             </div>
                             <div className="gpt-disclaimer">CORA 可能會出錯。本系統僅供衛教參考，實際用藥請務必諮詢醫師或藥師。</div>
+                            {medicationInfo && (
+                                <div className="gpt-card-under-input">
+                                    <MedicationCard />
+                                </div>
+                            )}
                         </div>
                     </section>
                 </div>
