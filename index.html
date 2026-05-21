@@ -622,6 +622,63 @@
     }
 }
 
+
+        /* v15 desktop medication card title fix:
+           Keep "藥物詳細資訊卡" on its own layer so it never collides with mic/input icons or right-side actions. */
+        .gpt-card-head {
+            flex-wrap: wrap;
+            align-items: flex-start;
+        }
+        .gpt-card-title-btn {
+            min-width: 0;
+            max-width: 100%;
+        }
+        .gpt-card-title-btn > span:not(.gpt-card-toggle) {
+            white-space: normal;
+            line-height: 1.35;
+            overflow-wrap: anywhere;
+        }
+        @media (min-width: 769px) {
+            .gpt-card-head {
+                display: grid !important;
+                grid-template-columns: 1fr auto;
+                grid-template-rows: auto auto;
+                align-items: start;
+                row-gap: 8px;
+                column-gap: 12px;
+            }
+            .gpt-card-title-btn {
+                grid-column: 1 / -1;
+                grid-row: 1;
+                width: 100%;
+                justify-content: flex-start;
+            }
+            .gpt-card-head > a {
+                grid-column: 1 / -1;
+                grid-row: 2;
+                justify-self: start;
+                margin-left: 26px;
+                line-height: 1.35;
+            }
+            .gpt-card-under-input .gpt-card-head {
+                padding-right: 12px;
+            }
+        }
+        @media (max-width: 768px) {
+            .gpt-card-head {
+                flex-wrap: nowrap;
+                align-items: center;
+            }
+            .gpt-card-title-btn {
+                flex: 1 1 auto;
+            }
+            .gpt-card-title-btn > span:not(.gpt-card-toggle) {
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+        }
+
         </style>
 </head>
 <body class="transition-colors duration-300">
