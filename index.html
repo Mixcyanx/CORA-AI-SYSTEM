@@ -678,7 +678,54 @@
                 text-overflow: ellipsis;
             }
         }
+/* v17 desktop-only fix:
+   電腦版藥物詳細資訊卡 / 查看參考圖片不可浮在輸入框與麥克風上方。 */
+@media (min-width: 769px) {
+    .gpt-chat,
+    .gpt-card-in-chat,
+    .gpt-card,
+    .gpt-card-head {
+        position: relative;
+        z-index: 1 !important;
+    }
 
+    .gpt-card-head {
+        pointer-events: auto;
+    }
+
+    .gpt-card-head a,
+    .gpt-card-title-btn,
+    .gpt-card-toggle {
+        position: relative;
+        z-index: 2 !important;
+    }
+
+    .gpt-composer-wrap {
+        position: absolute !important;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 9999 !important;
+        pointer-events: none !important;
+    }
+
+    .gpt-composer,
+    .gpt-disclaimer {
+        position: relative;
+        z-index: 10000 !important;
+        pointer-events: auto !important;
+    }
+
+    .gpt-input-row,
+    .gpt-text-input,
+    .gpt-input-row button,
+    .gpt-input-row .gpt-icon-btn,
+    .gpt-send {
+        position: relative;
+        z-index: 10001 !important;
+        pointer-events: auto !important;
+    }
+}
         </style>
 </head>
 <body class="transition-colors duration-300">
