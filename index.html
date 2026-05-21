@@ -606,6 +606,37 @@
         }
 
 
+        /* desktop-only fix: keep medication card away from microphone/input bar */
+        @media (min-width: 769px) {
+            .gpt-composer-wrap {
+                z-index: 100 !important;
+                background: var(--gpt-bg) !important;
+                box-shadow: 0 -18px 34px var(--gpt-bg) !important;
+            }
+            .gpt-composer {
+                background: var(--gpt-input) !important;
+                opacity: 1 !important;
+                position: relative !important;
+                z-index: 101 !important;
+            }
+            .gpt-input-row,
+            .gpt-text-input,
+            .gpt-icon-btn,
+            .gpt-send {
+                position: relative !important;
+                z-index: 102 !important;
+            }
+            .gpt-card-in-chat {
+                padding-bottom: 124px !important;
+            }
+            .gpt-chat {
+                padding-bottom: 230px !important;
+            }
+            .gpt-card-under-input {
+                display: none !important;
+            }
+        }
+
         </style>
 </head>
 <body class="transition-colors duration-300">
