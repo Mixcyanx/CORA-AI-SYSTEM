@@ -150,7 +150,9 @@
 
         .cora-floating-avatar { position:absolute; right:28px; bottom:112px; width:196px; height:250px; border:1px solid var(--gpt-border); border-radius:28px; background:var(--gpt-surface); box-shadow:0 18px 46px rgba(0,0,0,.18); overflow:visible; z-index:4; }
         .cora-floating-avatar > div:last-child { width:100%; height:100%; border-radius:28px; overflow:hidden; }
-        .cora-floating-avatar-label { position:absolute; left:12px; top:-34px; z-index:5; font-size:12px; font-weight:600; letter-spacing:.02em; padding:6px 11px; border-radius:999px; background:var(--gpt-surface-2); color:var(--gpt-text); border:1px solid var(--gpt-border); box-shadow:0 8px 22px rgba(0,0,0,.12); }
+        .cora-floating-avatar-label {
+    display: none !important;
+}
         @media (max-width: 1180px) { .cora-floating-avatar { width:164px; height:210px; right:18px; bottom:112px; opacity:.96; } }
         @media (max-width: 860px) { .cora-floating-avatar { display:block; width:96px; height:122px; right:12px; top:68px; bottom:auto; border-radius:20px; opacity:.98; box-shadow:0 12px 32px rgba(0,0,0,.16); } .cora-floating-avatar > div:last-child { border-radius:20px; } .cora-floating-avatar-label { top:-28px; left:6px; font-size:10px; padding:4px 8px; } }
         @media (max-width: 768px) {
@@ -558,6 +560,52 @@
             .gpt-chat { padding-bottom: 130px !important; scroll-padding-bottom: 140px !important; }
         }
 
+
+        /* desktop sidebar toggle button */
+        .gpt-sidebar-toggle { display:flex; flex:0 0 38px; }
+        @media (min-width: 769px) {
+            .gpt-sidebar { transition: width .22s ease, min-width .22s ease, padding .22s ease, transform .22s ease, opacity .18s ease; }
+            .gpt-sidebar.desktop-collapsed {
+                width: 0 !important;
+                min-width: 0 !important;
+                padding: 0 !important;
+                overflow: hidden !important;
+                border-right: 0 !important;
+                opacity: 0;
+            }
+            .gpt-sidebar.desktop-collapsed * { pointer-events:none; }
+        }
+        @media (max-width: 768px) {
+            .gpt-sidebar-toggle { display:flex; }
+        }
+
+
+        /* v14 desktop fixes: hide duplicate top title and animate sidebar toggle across divider */
+        @media (min-width: 769px) {
+            .gpt-topbar .desktop-title-hidden { display: none !important; }
+            .gpt-topbar { position: relative; }
+            .gpt-sidebar-toggle {
+                position: fixed !important;
+                top: 10px !important;
+                left: 214px !important;
+                z-index: 100001 !important;
+                transition: left .22s ease, background .16s ease, transform .22s ease !important;
+                background: transparent;
+            }
+            .gpt-sidebar-toggle.sidebar-closed {
+                left: 12px !important;
+            }
+            .gpt-sidebar-toggle:hover { background: var(--gpt-surface-2); }
+            .gpt-sidebar:not(.desktop-collapsed) + .gpt-main .gpt-sidebar-toggle {
+                color: var(--gpt-text);
+            }
+        }
+        @media (max-width: 768px) {
+            .gpt-topbar .desktop-title-hidden { display: block; }
+            .gpt-sidebar-toggle { position: static !important; }
+        }
+
+
         </style>
 </head>
 <body class="transition-colors duration-300">
@@ -783,6 +831,7 @@ class OpenAI {
             const [currentUser, setCurrentUser] = useState(null);
             const [idToken, setIdToken] = useState(null);
             const [historyOpen, setHistoryOpen] = useState(false);
+            const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
             const [loginOpen, setLoginOpen] = useState(false);
             const [savedChats, setSavedChats] = useState(() => sortChatsNewestFirst(readLocalChats()));
             const [activeSavedChatId, setActiveSavedChatId] = useState(null);
@@ -1445,6 +1494,14 @@ class OpenAI {
                 }
             };
 
+            const toggleSidebar = () => {
+                if (window.innerWidth <= 768) {
+                    setHistoryOpen(true);
+                    return;
+                }
+                setSidebarCollapsed(prev => !prev);
+            };
+
                 const MedicationCard = () => {
                 if (!medicationInfo) return null;
                 return (
@@ -1530,7 +1587,7 @@ class OpenAI {
 
                     {historyOpen && <div className="gpt-mobile-backdrop md:hidden" onClick={() => setHistoryOpen(false)}></div>}
 
-                    <aside className={`gpt-sidebar ${historyOpen ? "open" : ""}`}>
+                    <aside className={`gpt-sidebar ${historyOpen ? "open" : ""} ${sidebarCollapsed ? "desktop-collapsed" : ""}`}>
                         <div className="gpt-sidebar-top">
                             <img src="https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Apple_Icon.png" className="w-8 h-8 rounded-lg object-cover" />
                             <div className="min-w-0 flex-1">
@@ -1572,12 +1629,12 @@ class OpenAI {
                         </div>
                     </aside>
 
-                    <section className="gpt-main">
+                    <section className={`gpt-main ${sidebarCollapsed ? "sidebar-is-collapsed" : ""}`}>
                         <header className="gpt-topbar">
                             <div className="flex items-center gap-2 min-w-0">
-                                <button className="gpt-icon-btn gpt-mobile-menu" onClick={() => setHistoryOpen(true)}><Icon name="panel-left" size={20} /></button>
+                                <button className={`gpt-icon-btn gpt-sidebar-toggle ${sidebarCollapsed ? "sidebar-closed" : "sidebar-open"}`} onClick={toggleSidebar} title={sidebarCollapsed ? "開啟側邊欄" : "收合側邊欄"}><Icon name="panel-left" size={20} /></button>
                                 <div className="min-w-0">
-                                    <div className="gpt-title truncate">CORA AI 藥物解說系統</div>
+                                    <div className="gpt-title desktop-title-hidden truncate">CORA AI 藥物解說系統</div>
                                 </div>
                             </div>
                             <div className="flex items-center gap-1">
