@@ -1000,7 +1000,86 @@
             }
         }
 
-        </style>
+        
+
+        /* v26: safe TTS, image generation rectangle animation, mobile long-press copy, card independent scroll */
+        .gpt-card,
+        .gpt-card-under-input .gpt-card {
+            overscroll-behavior: contain;
+            touch-action: pan-y;
+            -webkit-overflow-scrolling: touch;
+        }
+        .cora-image-generating {
+            width: min(360px, 78vw);
+            border: 1px solid var(--gpt-border);
+            border-radius: 18px;
+            background: var(--gpt-surface);
+            padding: 12px;
+            box-shadow: 0 10px 28px rgba(0,0,0,.10);
+        }
+        .cora-image-rect {
+            position: relative;
+            height: 138px;
+            border-radius: 16px;
+            border: 1px solid var(--gpt-border);
+            overflow: hidden;
+            background: linear-gradient(110deg, var(--gpt-surface-2), var(--gpt-bg), var(--gpt-surface-2));
+        }
+        .cora-image-rect::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            width: 45%;
+            transform: translateX(-120%);
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,.34), transparent);
+            animation: coraImageScan 1.15s infinite ease-in-out;
+        }
+        .cora-image-rect::after {
+            content: "";
+            position: absolute;
+            inset: 16px;
+            border: 1px dashed rgba(127,127,127,.45);
+            border-radius: 12px;
+            animation: coraImagePulse 1.2s infinite ease-in-out;
+        }
+        .cora-image-generating-text {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 10px;
+            color: var(--gpt-muted);
+            font-size: 13px;
+        }
+        @keyframes coraImageScan {
+            0% { transform: translateX(-120%); }
+            100% { transform: translateX(260%); }
+        }
+        @keyframes coraImagePulse {
+            0%, 100% { opacity: .45; transform: scale(.985); }
+            50% { opacity: 1; transform: scale(1); }
+        }
+        .gpt-bubble { position: relative; }
+        .cora-copy-pop {
+            position: absolute;
+            right: 6px;
+            top: -36px;
+            z-index: 80;
+            border: 1px solid var(--gpt-border);
+            background: var(--gpt-surface);
+            color: var(--gpt-text);
+            border-radius: 999px;
+            padding: 7px 12px;
+            font-size: 12px;
+            box-shadow: 0 10px 28px rgba(0,0,0,.20);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        @media (min-width: 769px) {
+            .cora-copy-pop { display: none; }
+        }
+
+    </style>
 </head>
 <body class="transition-colors duration-300">
     <div id="root"></div>
@@ -1251,6 +1330,8 @@ class CoraWorkerClient {
             const [medicationInfo, setMedicationInfo] = useState(null);
             const [cardCollapsed, setCardCollapsed] = useState(() => window.innerWidth <= 768);
             const [isListening, setIsListening] = useState(false);
+            const [copyTargetId, setCopyTargetId] = useState(null);
+            const [isImageGenerating, setIsImageGenerating] = useState(false);
 
             const scrollRef = useRef(null);
             const audioRef = useRef(null);
@@ -1267,8 +1348,43 @@ class CoraWorkerClient {
             const recognitionRef = useRef(null);
             const sendingRef = useRef(false);
             const activeSavedChatIdRef = useRef(null);
+            const longPressTimerRef = useRef(null);
 
             const client = useMemo(() => new CoraWorkerClient("https://royal-surf-f8bc.s02204-hill.workers.dev"), []);
+
+            const isImageGenerationRequest = (value) => /(生成|畫|繪製|設計|做一張|產生).*(圖|圖片|logo|封面|插圖|角色|image|picture)|generate.*(image|picture)|draw/i.test(String(value || ""));
+
+            const copyMessageText = async (text) => {
+                const value = String(text || "");
+                if (!value) return;
+                try {
+                    await navigator.clipboard.writeText(value);
+                } catch {
+                    const textarea = document.createElement("textarea");
+                    textarea.value = value;
+                    textarea.style.position = "fixed";
+                    textarea.style.opacity = "0";
+                    document.body.appendChild(textarea);
+                    textarea.focus();
+                    textarea.select();
+                    document.execCommand("copy");
+                    textarea.remove();
+                }
+                setCopyTargetId(null);
+            };
+
+            const startMessageLongPress = (msg) => {
+                if (window.innerWidth > 768 || !msg?.content) return;
+                clearTimeout(longPressTimerRef.current);
+                longPressTimerRef.current = setTimeout(() => {
+                    setCopyTargetId(msg.id);
+                    if (navigator.vibrate) navigator.vibrate(18);
+                }, 520);
+            };
+
+            const cancelMessageLongPress = () => {
+                clearTimeout(longPressTimerRef.current);
+            };
 
             useEffect(() => {
                 activeSavedChatIdRef.current = activeSavedChatId;
@@ -1761,7 +1877,7 @@ class CoraWorkerClient {
 
                     if (!audioEnabled || !text) return;
 
-                    // 使用新的 Google Gemini TTS：Cloudflare Worker action: "tts"
+                    // 使用 Google Text-to-Speech AI：Cloudflare Worker action: "tts"。
                     // GeminiData 只負責 Knowledge Graph 查詢，不負責語音。
                     // Worker 應回傳 { audioBase64, mimeType } 或 { audioUrl }。
                     const ttsData = await client.tts(text, idToken);
@@ -1775,7 +1891,7 @@ class CoraWorkerClient {
                     }
 
                     if (!audioSrc) {
-                        throw new Error("Google Gemini TTS 沒有回傳音訊");
+                        return;
                     }
 
                     const audio = new Audio(audioSrc);
@@ -1793,7 +1909,7 @@ class CoraWorkerClient {
 
                 } catch (err) {
 
-                    console.warn("Google Google Gemini TTS 失敗，不退回瀏覽器語音：", err);
+                    console.warn("Google Text-to-Speech AI 失敗，不退回瀏覽器語音：", err);
                     stopMouth();
                     window.speechSynthesis?.cancel();
                 }
@@ -1856,6 +1972,7 @@ class CoraWorkerClient {
                 });
                 const currentMemory = [...chatMemory, { role: "user", content: text }].slice(-10);
                 setChatMemory(currentMemory);
+                setIsImageGenerating(isImageGenerationRequest(text));
                 setLoading(true);
 
                 try {
@@ -1968,6 +2085,7 @@ ${response.imagePrompt}`;
                     speakLocal(errorText);
                 } finally {
                     setLoading(false);
+                    setIsImageGenerating(false);
                     sendingRef.current = false;
                 }
             };
@@ -2115,7 +2233,6 @@ ${response.imagePrompt}`;
                                 <Icon name={personalMemoryEnabled ? "brain" : "brain-circuit"} size={17} />
                                 <span>{personalMemoryEnabled ? "個人記憶模式：開" : "個人記憶模式：關"}</span>
                             </button>
-                            
                             {currentUser && <button onClick={signOutGoogle} className="gpt-new-chat text-zinc-300"><Icon name="log-out" size={17} /><span>登出</span></button>}
                             <div className="cora-legal-links cora-legal-links-mobile" aria-label="CORA legal links">
                                 <a href="https://mixcyanx.github.io/CORA-AI-SYSTEM/privacy.html" target="_blank" rel="noopener noreferrer">隱私權政策</a>
@@ -2149,14 +2266,31 @@ ${response.imagePrompt}`;
                             </div>
                         </header>
 
-                        <div ref={scrollRef} className="gpt-chat">
+                        <div ref={scrollRef} className="gpt-chat" onClick={() => setCopyTargetId(null)}>
                             {messages.map((msg) => (
                                 <motion.div key={msg.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className={`gpt-message-row ${msg.role === "user" ? "gpt-user-row" : ""}`}>
                                     <div className="gpt-message-inner">
                                         <div className={`gpt-avatar ${msg.role === "assistant" ? "assistant" : ""}`}>
                                             {msg.role === "user" && currentUser?.photoURL ? <img src={currentUser.photoURL} className="w-full h-full object-cover" referrerPolicy="no-referrer" /> : <Icon name={msg.role === "user" ? "user" : "sparkles"} size={16} />}
                                         </div>
-                                        <div className={`gpt-bubble ${msg.role === "user" ? "gpt-user-bubble" : ""} ${msg.images && msg.images.length > 0 ? "gpt-has-images" : ""}`}>
+                                        <div
+                                            className={`gpt-bubble ${msg.role === "user" ? "gpt-user-bubble" : ""} ${msg.images && msg.images.length > 0 ? "gpt-has-images" : ""}`}
+                                            onTouchStart={() => startMessageLongPress(msg)}
+                                            onTouchEnd={cancelMessageLongPress}
+                                            onTouchMove={cancelMessageLongPress}
+                                            onContextMenu={(e) => {
+                                                if (window.innerWidth <= 768 && msg.content) {
+                                                    e.preventDefault();
+                                                    setCopyTargetId(msg.id);
+                                                }
+                                            }}
+                                        >
+                                            {copyTargetId === msg.id && msg.content && (
+                                                <button type="button" className="cora-copy-pop" onClick={() => copyMessageText(msg.content)}>
+                                                    <Icon name="copy" size={14} />
+                                                    <span>複製</span>
+                                                </button>
+                                            )}
                                             {msg.images && msg.images.length > 0 && (
                                                 <div className={`gpt-images ${msg.images.length === 1 ? "single-image" : "multi-image"}`}>
                                                     {msg.images.map((img, idx) => <img key={idx} src={img} onClick={() => setPreviewImage(img)} className="gpt-image-thumb" />)}
@@ -2172,10 +2306,22 @@ ${response.imagePrompt}`;
                                 <div className="gpt-message-row">
                                     <div className="gpt-message-inner">
                                         <div className="gpt-avatar assistant"><Icon name="sparkles" size={16} /></div>
-                                        <div className="gpt-bubble flex items-center gap-2">
-                                            <span>Cora 正在查閱資料</span>
-                                            <span className="gpt-loading-dots"><span></span><span></span><span></span></span>
-                                        </div>
+                                        {isImageGenerating ? (
+                                            <div className="gpt-bubble">
+                                                <div className="cora-image-generating">
+                                                    <div className="cora-image-rect"></div>
+                                                    <div className="cora-image-generating-text">
+                                                        <span>正在生成圖片</span>
+                                                        <span className="gpt-loading-dots"><span></span><span></span><span></span></span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="gpt-bubble flex items-center gap-2">
+                                                <span>Cora 正在查閱資料</span>
+                                                <span className="gpt-loading-dots"><span></span><span></span><span></span></span>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             )}
