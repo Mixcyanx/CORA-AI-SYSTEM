@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
     <title>CORA AI 藥物解說系統</title>
     <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Apple_Icon.png" />
 	<link rel="icon" type="image/png" href="https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Icon.png" />
@@ -726,6 +726,12 @@
         pointer-events: auto !important;
     }
 }
+        
+        /* v18 mobile fixes: prevent iPhone input zoom and invert card triangle when collapsed */
+        @media (max-width: 768px) {
+            .gpt-text-input { font-size: 16px !important; }
+            .gpt-card.collapsed .gpt-card-toggle svg { transform: rotate(180deg) !important; }
+        }
         </style>
 </head>
 <body class="transition-colors duration-300">
@@ -792,7 +798,7 @@ class OpenAI {
         return data;
     }
 
-    async ask(question, history = [], chatId = null, idToken = null, conversationId = null, images = [], fullMessages = []) {
+    async ask(question, history = [], chatId = null, idToken = null, conversationId = null, images = [], fullMessages = [], personalMemoryEnabled = true) {
         return this.request({
             action: "ask",
             question,
@@ -800,7 +806,8 @@ class OpenAI {
             chatId,
             conversationId,
             images,
-            messages: fullMessages
+            messages: fullMessages,
+            personalMemoryEnabled
         }, idToken);
     }
     async listConversations(idToken) { return this.request({ action: "listConversations" }, idToken); }
@@ -961,13 +968,14 @@ class OpenAI {
             const [loading, setLoading] = useState(false);
             const [isTalking, setIsTalking] = useState(false);
             const [audioEnabled, setAudioEnabled] = useState(true);
+            const [personalMemoryEnabled, setPersonalMemoryEnabled] = useState(() => localStorage.getItem('CORA_PERSONAL_MEMORY_MODE') !== 'off');
             const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
             
             
             
             const [stagedImages, setStagedImages] = useState([]);
             const [medicationInfo, setMedicationInfo] = useState(null);
-            const [cardCollapsed, setCardCollapsed] = useState(false);
+            const [cardCollapsed, setCardCollapsed] = useState(() => window.innerWidth <= 768);
             const [isListening, setIsListening] = useState(false);
 
             const scrollRef = useRef(null);
@@ -984,8 +992,17 @@ class OpenAI {
             const cameraInputRef = useRef(null);
             const recognitionRef = useRef(null);
             const sendingRef = useRef(false);
+            const activeSavedChatIdRef = useRef(null);
 
             const client = useMemo(() => new OpenAI("https://royal-surf-f8bc.s02204-hill.workers.dev"), []);
+
+            useEffect(() => {
+                activeSavedChatIdRef.current = activeSavedChatId;
+            }, [activeSavedChatId]);
+
+            useEffect(() => {
+                localStorage.setItem('CORA_PERSONAL_MEMORY_MODE', personalMemoryEnabled ? 'on' : 'off');
+            }, [personalMemoryEnabled]);
 
             useEffect(() => {
                 const root = window.document.documentElement;
@@ -1078,7 +1095,8 @@ class OpenAI {
                         await loadCloudHistory(token);
                     } else {
                         setIdToken(null);
-                        const localChats = sortChatsNewestFirst(readLocalChats());
+                        const localChats = cleanupEmptyChats(sortChatsNewestFirst(readLocalChats()), null);
+                        writeLocalChats(localChats.filter(item => String(item.id).startsWith("local-") && !isEmptyConversation(item)));
                         setSavedChats(localChats);
                         setActiveSavedChatId(localChats[0]?.id || null);
                         setHistoryOpen(false);
@@ -1117,7 +1135,8 @@ class OpenAI {
 
             const loadCloudHistory = async (token = idToken) => {
                 if (!token) {
-                    const localChats = sortChatsNewestFirst(readLocalChats());
+                    const localChats = cleanupEmptyChats(sortChatsNewestFirst(readLocalChats()), activeSavedChatIdRef.current);
+                    writeLocalChats(localChats.filter(item => String(item.id).startsWith("local-") && !isEmptyConversation(item)));
                     setSavedChats(localChats);
                     return localChats;
                 }
@@ -1125,12 +1144,14 @@ class OpenAI {
                     const data = await client.listConversations(token);
                     const cloudChats = sortChatsNewestFirst(data.conversations || []);
                     const localChats = readLocalChats();
-                    const merged = sortChatsNewestFirst([...localChats, ...cloudChats]);
+                    const merged = cleanupEmptyChats(sortChatsNewestFirst([...localChats, ...cloudChats]), activeSavedChatIdRef.current);
+                    writeLocalChats(merged.filter(item => String(item.id).startsWith("local-") && !isEmptyConversation(item)));
                     setSavedChats(merged);
                     return merged;
                 } catch (err) {
                     console.warn("讀取雲端對話失敗：", err);
-                    const localChats = sortChatsNewestFirst(readLocalChats());
+                    const localChats = cleanupEmptyChats(sortChatsNewestFirst(readLocalChats()), activeSavedChatIdRef.current);
+                    writeLocalChats(localChats.filter(item => String(item.id).startsWith("local-") && !isEmptyConversation(item)));
                     setSavedChats(localChats);
                     return localChats;
                 }
@@ -1138,7 +1159,8 @@ class OpenAI {
 
             const syncLocalChatsToCloud = async (token = idToken) => {
                 if (!token) return;
-                const localChats = readLocalChats();
+                const localChats = readLocalChats().filter(chat => !isEmptyConversation(chat));
+                writeLocalChats(localChats);
                 if (!localChats.length) return;
 
                 const unsynced = [];
@@ -1155,10 +1177,32 @@ class OpenAI {
                 writeLocalChats(unsynced);
             };
 
-            const touchChatToTop = (chatId, patch = {}) => {
+            const chatHasRealUserMessage = (chat) => {
+                const list = Array.isArray(chat?.messages) ? chat.messages : [];
+                return list.some(msg => msg?.role === "user" && String(msg?.content || "").trim());
+            };
+
+            const isEmptyConversation = (chat) => {
+                if (!chat) return true;
+                const count = Number(chat.messageCount || 0);
+                const list = Array.isArray(chat.messages) ? chat.messages : [];
+                if (list.length > 0) return !chatHasRealUserMessage(chat);
+                return count <= 1 && /^(新的對話|新對話|未命名|CORA AI)?$/.test(String(chat.title || "").trim());
+            };
+
+            const cleanupEmptyChats = (chats, keepId = activeSavedChatIdRef.current) => {
+                return sortChatsNewestFirst((chats || []).filter(chat => {
+                    if (!chat) return false;
+                    if (keepId && chat.id === keepId) return true;
+                    return !isEmptyConversation(chat);
+                }));
+            };
+
+            const touchChatToTop = (chatId, patch = {}, replaceId = null) => {
                 const now = Date.now();
                 setSavedChats(prev => {
-                    const old = (prev || []).find(item => item.id === chatId) || {};
+                    const base = (prev || []).filter(item => item.id !== replaceId);
+                    const old = base.find(item => item.id === chatId) || {};
                     const nextChat = {
                         ...old,
                         ...patch,
@@ -1166,8 +1210,8 @@ class OpenAI {
                         lastAccessedAt: now,
                         updatedAt: now
                     };
-                    const next = upsertChat(prev || [], nextChat);
-                    const locals = next.filter(item => String(item.id).startsWith("local-"));
+                    const next = cleanupEmptyChats(upsertChat(base, nextChat), chatId);
+                    const locals = next.filter(item => String(item.id).startsWith("local-") && !isEmptyConversation(item));
                     writeLocalChats(locals);
                     return next;
                 });
@@ -1201,6 +1245,7 @@ class OpenAI {
                     setMessages(conversation.messages || []);
                     setChatMemory(conversation.chatMemory || []);
                     setMedicationInfo(conversation.medicationInfo || null);
+                    setCardCollapsed(window.innerWidth <= 768);
                     setActiveSavedChatId(conversation.id || chat.id || null);
                     setInput("");
                     setStagedImages([]);
@@ -1221,32 +1266,38 @@ class OpenAI {
 
             const startNewConversation = () => {
                 localStorage.removeItem("CORA_GEMINIDATA_CHAT_ID");
-                const localId = `local-${Date.now()}`;
+
                 const greeting = {
                     id: "greeting-new",
                     role: "assistant",
                     content: "已開啟新的對話，請問今天想查詢哪一種藥物？"
                 };
 
+                const existingEmpty = cleanupEmptyChats(savedChats, null).find(chat => isEmptyConversation(chat));
+                const localId = existingEmpty?.id || `local-${Date.now()}`;
+
                 setGeminiChatId(null);
                 setChatMemory([]);
                 setMedicationInfo(null);
+                setCardCollapsed(window.innerWidth <= 768);
                 setActiveSavedChatId(localId);
                 setMessages([greeting]);
-                const localChat = {
-                    id: localId,
-                    title: "新的對話",
-                    messages: [greeting],
-                    chatMemory: [],
-                    medicationInfo: null,
-                    geminiChatId: "",
-                    createdAt: Date.now(),
-                    updatedAt: Date.now(),
-                    lastAccessedAt: Date.now()
-                };
+
                 setSavedChats(prev => {
-                    const next = upsertChat(prev, localChat);
-                    writeLocalChats(next.filter(item => String(item.id).startsWith("local-")));
+                    const localChat = {
+                        id: localId,
+                        title: "新的對話",
+                        messages: [greeting],
+                        chatMemory: [],
+                        medicationInfo: null,
+                        geminiChatId: "",
+                        createdAt: Date.now(),
+                        updatedAt: Date.now(),
+                        lastAccessedAt: Date.now()
+                    };
+                    const withoutOtherEmpty = (prev || []).filter(chat => chat.id === localId || !isEmptyConversation(chat));
+                    const next = upsertChat(withoutOtherEmpty, localChat);
+                    writeLocalChats(next.filter(item => String(item.id).startsWith("local-") && !isEmptyConversation(item)));
                     return next;
                 });
                 setHistoryOpen(false);
@@ -1511,8 +1562,8 @@ class OpenAI {
                 const userMessage = { id: Date.now().toString(), role: "user", content: text, images: currentImages };
                 const nextMessagesBeforeSend = [...messages, userMessage];
                 setMessages(nextMessagesBeforeSend);
-                const activeId = activeSavedChatId || `local-${Date.now()}`;
-                if (!activeSavedChatId) setActiveSavedChatId(activeId);
+                const activeId = activeSavedChatIdRef.current || activeSavedChatId || `local-${Date.now()}`;
+                if (!activeSavedChatIdRef.current) setActiveSavedChatId(activeId);
                 touchChatToTop(activeId, {
                     title: makeChatTitle(text),
                     messages: nextMessagesBeforeSend,
@@ -1536,7 +1587,7 @@ class OpenAI {
                         return { role: msg.role, content };
                     });
 
-                    const response = await client.ask(text, currentMemory, geminiChatId, idToken, activeId, currentImages, nextMessagesBeforeSend);
+                    const response = await client.ask(text, personalMemoryEnabled ? currentMemory : [], geminiChatId, idToken, activeId, currentImages, nextMessagesBeforeSend, personalMemoryEnabled);
 
                     if (response.chatId && response.chatId !== geminiChatId) {
                         setGeminiChatId(response.chatId);
@@ -1544,7 +1595,7 @@ class OpenAI {
                     }
 
                     const finalChatId = response.conversationId || activeId;
-                    if (finalChatId !== activeSavedChatId) {
+                    if (finalChatId !== activeSavedChatIdRef.current) {
                         setActiveSavedChatId(finalChatId);
                     }
 
@@ -1601,6 +1652,7 @@ class OpenAI {
                     const finalMemory = [...currentMemory, { role: "assistant", content: info.answer }].slice(-10);
                     setMessages(finalMessages);
                     setMedicationInfo(info);
+                    setCardCollapsed(window.innerWidth <= 768);
                     setChatMemory(finalMemory);
                     touchChatToTop(finalChatId, {
                         title: makeChatTitle(text),
@@ -1608,13 +1660,13 @@ class OpenAI {
                         chatMemory: finalMemory,
                         medicationInfo: info,
                         geminiChatId: response.chatId || geminiChatId || ""
-                    });
+                    }, finalChatId !== activeId ? activeId : null);
                     notifyReply();
                     speakLocal(info.answer);
                 } catch (err) {
                     console.error(err);
                     setIsTalking(false);
-                    const errorText = "抱歉，我暫時無法取得該藥物的資訊。請稍後再試。";
+                    const errorText = "抱歉，可能因為網路不穩定或 API 暫時中斷，這次訊息沒有成功生成。請確認網路後再試一次。";
                     setMessages(prev => [...prev, { id: Date.now().toString(), role: "assistant", content: errorText }]);
                     notifyReply();
                     speakLocal(errorText);
@@ -1754,6 +1806,10 @@ class OpenAI {
                                     <div className="text-sm truncate">{currentUser?.displayName || "登入 CORA"}</div>
                                     <div className="text-[11px] text-zinc-400 truncate">{currentUser ? "已啟用雲端記憶" : "儲存對話紀錄"}</div>
                                 </div>
+                            </button>
+                            <button type="button" onClick={() => setPersonalMemoryEnabled(prev => !prev)} className="gpt-new-chat" title="個人記憶模式">
+                                <Icon name={personalMemoryEnabled ? "brain" : "brain-circuit"} size={17} />
+                                <span>{personalMemoryEnabled ? "個人記憶模式：開" : "個人記憶模式：關"}</span>
                             </button>
                             {currentUser && <button onClick={signOutGoogle} className="gpt-new-chat text-zinc-300"><Icon name="log-out" size={17} /><span>登出</span></button>}
                         </div>
