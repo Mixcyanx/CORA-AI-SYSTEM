@@ -1771,6 +1771,7 @@ class OpenAI {
             const [medicationInfo, setMedicationInfo] = useState(null);
             const [cardCollapsed, setCardCollapsed] = useState(() => window.innerWidth <= 768);
             const [isListening, setIsListening] = useState(false);
+            const [voiceAutoMode, setVoiceAutoMode] = useState(false);
 
             const inputRef = useRef("");
             const messagesRef = useRef([]);
@@ -1795,6 +1796,8 @@ class OpenAI {
             const fileInputRef = useRef(null);
             const cameraInputRef = useRef(null);
             const recognitionRef = useRef(null);
+            const recognitionStartingRef = useRef(false);
+            const voiceAutoModeRef = useRef(false);
             const sendingRef = useRef(false);
             const activeSavedChatIdRef = useRef(null);
             const longPressTimerRef = useRef(null);
@@ -1810,15 +1813,15 @@ class OpenAI {
             useEffect(() => { geminiChatIdRef.current = geminiChatId; }, [geminiChatId]);
             useEffect(() => { idTokenRef.current = idToken; }, [idToken]);
             useEffect(() => { personalMemoryEnabledRef.current = personalMemoryEnabled; }, [personalMemoryEnabled]);
+            useEffect(() => { voiceAutoModeRef.current = voiceAutoMode; }, [voiceAutoMode]);
 
             useEffect(() => {
                 activeSavedChatIdRef.current = activeSavedChatId;
             }, [activeSavedChatId]);
 
             const isImageGenerationPrompt = (text) => {
-                const source = String(text || "").trim();
-                return /(生成|產生|畫|做一張|設計|create|generate|draw|image|picture|logo|封面|去背|圖片)/i.test(source) &&
-                    !/(分析|辨識|這張|這個藥|藥品|藥物資訊|成分)/i.test(source);
+                // v33：目前前端不提供真正圖片生成能力，因此不再顯示圖片生成矩形動畫，避免使用者誤會。
+                return false;
             };
 
             const copyTextToClipboard = async (text) => {
@@ -2000,14 +2003,22 @@ class OpenAI {
                     recognition.onresult = (event) => {
                         const transcript = event.results[0][0].transcript;
                         setInput(transcript);
+                        setIsListening(false);
+                        recognitionStartingRef.current = false;
                         setTimeout(() => {
                             if (handleSendRef.current) {
-                                handleSendRef.current(transcript);
+                                handleSendRef.current(transcript, { fromVoice: true });
                             }
                         }, 250);
                     };
-                    recognition.onend = () => setIsListening(false);
-                    recognition.onerror = () => setIsListening(false);
+                    recognition.onend = () => {
+                        setIsListening(false);
+                        recognitionStartingRef.current = false;
+                    };
+                    recognition.onerror = () => {
+                        setIsListening(false);
+                        recognitionStartingRef.current = false;
+                    };
                     recognitionRef.current = recognition;
                 }
             }, []);
@@ -2402,12 +2413,22 @@ class OpenAI {
                         }
                     };
 
-                    utterance.onend = stopMouth;
-                    utterance.onerror = stopMouth;
-                    utterance.onpause = stopMouth;
+                    await new Promise((resolve) => {
+                        let done = false;
+                        const finishSpeech = () => {
+                            if (done) return;
+                            done = true;
+                            stopMouth();
+                            resolve();
+                        };
 
-                    window.speechSynthesis.cancel();
-                    window.speechSynthesis.speak(utterance);
+                        utterance.onend = finishSpeech;
+                        utterance.onerror = finishSpeech;
+                        utterance.onpause = finishSpeech;
+
+                        window.speechSynthesis.cancel();
+                        window.speechSynthesis.speak(utterance);
+                    });
 
                 } catch (err) {
 
@@ -2423,13 +2444,39 @@ class OpenAI {
                 }
             };
 
-            const startListening = () => {
-                if (recognitionRef.current && !isListening) {
-                    recognitionRef.current.start();
+            const startListeningInternal = () => {
+                const recognition = recognitionRef.current;
+                if (!recognition || recognitionStartingRef.current || sendingRef.current) return;
+                try {
+                    recognitionStartingRef.current = true;
+                    recognition.start();
                     setIsListening(true);
-                } else if (isListening) {
-                    recognitionRef.current?.stop();
+                } catch (err) {
+                    recognitionStartingRef.current = false;
+                    setIsListening(false);
+                    console.warn("語音辨識啟動失敗：", err);
                 }
+            };
+
+            const pauseListeningOnly = () => {
+                recognitionStartingRef.current = false;
+                setIsListening(false);
+                try {
+                    recognitionRef.current?.stop();
+                } catch {}
+            };
+
+            const startListening = () => {
+                if (voiceAutoModeRef.current) {
+                    voiceAutoModeRef.current = false;
+                    setVoiceAutoMode(false);
+                    pauseListeningOnly();
+                    return;
+                }
+
+                voiceAutoModeRef.current = true;
+                setVoiceAutoMode(true);
+                startListeningInternal();
             };
 
             const handleFileChange = async (e) => {
@@ -2448,7 +2495,7 @@ class OpenAI {
                 e.target.value = "";
             };
 
-            const handleSend = async (overrideInput) => {
+            const handleSend = async (overrideInput, options = {}) => {
                 const latestInput = inputRef.current || "";
                 const currentInput = overrideInput !== undefined ? overrideInput : latestInput;
                 const latestStagedImages = Array.isArray(stagedImagesRef.current) ? stagedImagesRef.current : [];
@@ -2461,6 +2508,11 @@ class OpenAI {
 
                 if (sendingRef.current || loading || (!String(currentInput || "").trim() && latestStagedImages.length === 0)) return;
                 sendingRef.current = true;
+
+                // v33：語音模式送出後先暫停錄音，避免把 AI 回答或環境音再次送出。
+                if (options.fromVoice || voiceAutoModeRef.current) {
+                    pauseListeningOnly();
+                }
 
                 const text = String(currentInput || "").trim() || "請協助分析這些藥物相關圖片。";
                 const currentImages = latestStagedImages.map(img => img.data).filter(Boolean);
@@ -2484,8 +2536,8 @@ class OpenAI {
                 });
                 const currentMemory = [...latestMemory, { role: "user", content: text }].slice(-10);
                 setChatMemory(currentMemory);
-                const shouldShowImageAnimation = isImageGenerationPrompt(text);
-                setImageGenerating(shouldShowImageAnimation);
+                const shouldShowImageAnimation = false;
+                setImageGenerating(false);
                 setLoading(true);
 
                 try {
@@ -2577,14 +2629,20 @@ class OpenAI {
                         geminiChatId: response.chatId || latestGeminiChatId || ""
                     }, finalChatId !== activeId ? activeId : null);
                     notifyReply();
-                    speakLocal(info.answer);
+                    await speakLocal(info.answer);
+                    if (voiceAutoModeRef.current) {
+                        setTimeout(startListeningInternal, 260);
+                    }
                 } catch (err) {
                     console.error(err);
                     setIsTalking(false);
                     const errorText = "抱歉，可能因為網路不穩定或 API 暫時中斷，這次訊息沒有成功生成。請確認網路後再試一次。";
                     setMessages(prev => [...prev, { id: Date.now().toString(), role: "assistant", content: errorText }]);
                     notifyReply();
-                    speakLocal(errorText);
+                    await speakLocal(errorText);
+                    if (voiceAutoModeRef.current) {
+                        setTimeout(startListeningInternal, 260);
+                    }
                 } finally {
                     setLoading(false);
                     setImageGenerating(false);
@@ -2812,16 +2870,10 @@ class OpenAI {
                                     <div className="gpt-message-inner">
                                         <div className="gpt-avatar assistant"><Icon name="sparkles" size={16} /></div>
                                         <div className="gpt-bubble flex items-center gap-2">
-                                            {imageGenerating ? (
-                                                <div className="cora-image-generation-card">
-                                                    <div className="cora-image-generation-label">Cora 正在生成圖片</div>
-                                                </div>
-                                            ) : (
-                                                <>
-                                                    <span>Cora 正在查閱資料</span>
-                                                    <span className="gpt-loading-dots"><span></span><span></span><span></span></span>
-                                                </>
-                                            )}
+                                            <>
+                                                <span>Cora 正在查閱資料</span>
+                                                <span className="gpt-loading-dots"><span></span><span></span><span></span></span>
+                                            </>
                                         </div>
                                     </div>
                                 </div>
@@ -2858,7 +2910,7 @@ class OpenAI {
                                     </div>
                                 )}
                                 <div className="gpt-input-row">
-                                    <button onClick={startListening} className="gpt-icon-btn" title="語音輸入"><Icon name={isListening ? "radio" : "mic"} size={20} /></button>
+                                    <button onClick={startListening} className="gpt-icon-btn" title={voiceAutoMode ? "暫停語音模式" : "語音輸入 / 開啟無手對話"}><Icon name={voiceAutoMode ? "pause" : "mic"} size={20} /></button>
                                     <button onClick={() => cameraInputRef.current?.click()} className="gpt-icon-btn" title="拍照"><Icon name="camera" size={20} /></button>
                                     <button onClick={() => fileInputRef.current?.click()} className="gpt-icon-btn" title="上傳圖片"><Icon name="image" size={20} /></button>
                                     <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" multiple onChange={handleFileChange} className="hidden" />
