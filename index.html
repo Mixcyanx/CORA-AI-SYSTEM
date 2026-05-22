@@ -1006,7 +1006,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef, useMemo } = React;
+        const { useState, useEffect, useRef, useMemo, useCallback } = React;
         const { motion, AnimatePresence } = window.Motion;
 
         // --- Lucide Icon Component ---
@@ -1066,7 +1066,7 @@ class CoraWorkerClient {
         return data;
     }
 
-    async ask(question, history = [], chatId = null, idToken = null, conversationId = null, images = [], fullMessages = [], personalMemoryEnabled = true) {
+    async ask(question, history = [], chatId = null, idToken = null, conversationId = null, images = [], fullMessages = [], personalMemoryEnabled = true, globalMemory = []) {
         return this.request({
             action: "ask",
             question,
@@ -1075,13 +1075,16 @@ class CoraWorkerClient {
             conversationId,
             images,
             messages: fullMessages,
-            personalMemoryEnabled
+            personalMemoryEnabled,
+            globalMemory
         }, idToken);
     }
     async listConversations(idToken) { return this.request({ action: "listConversations" }, idToken); }
     async loadConversation(idToken, conversationId) { return this.request({ action: "loadConversation", conversationId }, idToken); }
     async deleteConversation(idToken, conversationId) { return this.request({ action: "deleteConversation", conversationId }, idToken); }
     async syncConversation(idToken, conversation) { return this.request({ action: "syncConversation", conversation }, idToken); }
+    async loadPersonalMemory(idToken) { return this.request({ action: "loadPersonalMemory" }, idToken); }
+    async savePersonalMemory(idToken, memory) { return this.request({ action: "savePersonalMemory", memory }, idToken); }
     async tts(text, idToken = null) { return this.request({ action: "tts", text }, idToken); }
 }
 
@@ -1222,6 +1225,9 @@ class CoraWorkerClient {
             const [input, setInput] = useState("");
             const [messages, setMessages] = useState([]);
             const [chatMemory, setChatMemory] = useState([]);
+            const [globalMemory, setGlobalMemory] = useState(() => {
+                try { return JSON.parse(localStorage.getItem("CORA_GLOBAL_MEMORY") || "[]"); } catch { return []; }
+            });
             const [geminiChatId, setGeminiChatId] = useState(() => localStorage.getItem("CORA_GEMINIDATA_CHAT_ID") || null);
             const [currentUser, setCurrentUser] = useState(null);
             const [idToken, setIdToken] = useState(null);
@@ -1271,6 +1277,10 @@ class CoraWorkerClient {
             useEffect(() => {
                 localStorage.setItem('CORA_PERSONAL_MEMORY_MODE', personalMemoryEnabled ? 'on' : 'off');
             }, [personalMemoryEnabled]);
+
+            useEffect(() => {
+                try { localStorage.setItem("CORA_GLOBAL_MEMORY", JSON.stringify(globalMemory || [])); } catch {}
+            }, [globalMemory]);
 
             useEffect(() => {
                 const root = window.document.documentElement;
@@ -1361,6 +1371,7 @@ class CoraWorkerClient {
                         setIdToken(token);
                         await syncLocalChatsToCloud(token);
                         await loadCloudHistory(token);
+                        await loadPersonalMemoryFromCloud(token);
                     } else {
                         setIdToken(null);
                         const localChats = cleanupEmptyChats(sortChatsNewestFirst(readLocalChats()), null);
@@ -1422,6 +1433,46 @@ class CoraWorkerClient {
                     writeLocalChats(localChats.filter(item => String(item.id).startsWith("local-") && !isEmptyConversation(item)));
                     setSavedChats(localChats);
                     return localChats;
+                }
+            };
+
+            const loadPersonalMemoryFromCloud = async (token = idToken) => {
+                if (!token) return globalMemory;
+                try {
+                    const data = await client.loadPersonalMemory(token);
+                    const memory = Array.isArray(data.memory) ? data.memory : [];
+                    setGlobalMemory(memory);
+                    try { localStorage.setItem("CORA_GLOBAL_MEMORY", JSON.stringify(memory)); } catch {}
+                    return memory;
+                } catch (err) {
+                    console.warn("讀取個人記憶失敗，先使用本機記憶：", err);
+                    return globalMemory;
+                }
+            };
+
+            const buildPersonalMemory = (oldMemory, userText, assistantText, title) => {
+                const memory = Array.isArray(oldMemory) ? oldMemory : [];
+                const normalizedText = String(userText || "").trim();
+                const normalizedAnswer = String(assistantText || "").trim();
+                if (!normalizedText && !normalizedAnswer) return memory.slice(-30);
+                const item = {
+                    id: `mem-${Date.now()}`,
+                    title: String(title || makeChatTitle(normalizedText) || "對話記憶").slice(0, 24),
+                    user: normalizedText.slice(0, 220),
+                    assistant: normalizedAnswer.slice(0, 360),
+                    updatedAt: new Date().toISOString()
+                };
+                const same = (m) => String(m.user || "").trim() === item.user && String(m.assistant || "").trim() === item.assistant;
+                return [item, ...memory.filter(m => !same(m))].slice(0, 30);
+            };
+
+            const savePersonalMemoryToCloud = async (memory, token = idToken) => {
+                try { localStorage.setItem("CORA_GLOBAL_MEMORY", JSON.stringify(memory || [])); } catch {}
+                if (!token) return;
+                try {
+                    await client.savePersonalMemory(token, memory || []);
+                } catch (err) {
+                    console.warn("儲存個人記憶失敗，已保留於本機：", err);
                 }
             };
 
@@ -1819,7 +1870,7 @@ class CoraWorkerClient {
                         return { role: msg.role, content };
                     });
 
-                    const response = await client.ask(text, personalMemoryEnabled ? currentMemory : [], geminiChatId, idToken, activeId, currentImages, nextMessagesBeforeSend, personalMemoryEnabled);
+                    const response = await client.ask(text, personalMemoryEnabled ? currentMemory : [], geminiChatId, idToken, activeId, currentImages, nextMessagesBeforeSend, personalMemoryEnabled, personalMemoryEnabled ? globalMemory : []);
 
                     if (response.chatId && response.chatId !== geminiChatId) {
                         setGeminiChatId(response.chatId);
@@ -1831,13 +1882,20 @@ class CoraWorkerClient {
                         setActiveSavedChatId(finalChatId);
                     }
 
-                    const aiText =
+                    let aiText =
                         response.result ||
                         response.response ||
                         response.answer ||
                         response.message ||
                         (response.rawLLM && response.rawLLM.choices && response.rawLLM.choices[0] && response.rawLLM.choices[0].message && response.rawLLM.choices[0].message.content) ||
                         "目前沒有取得回答";
+
+                    if (response.imagePrompt && !String(aiText).includes(response.imagePrompt)) {
+                        aiText = `${aiText}
+
+圖片生成提示詞：
+${response.imagePrompt}`;
+                    }
 
                     const drugCard =
                         response.drugCard ||
@@ -1883,14 +1941,20 @@ class CoraWorkerClient {
                     const finalMessages = [...nextMessagesBeforeSend, assistantMessage];
                     const finalMemory = [...currentMemory, { role: "assistant", content: info.answer }].slice(-10);
                     setMessages(finalMessages);
-                    setMedicationInfo(info);
+                    const hasDrugCardData = [info.ingredients, info.indications, info.side_effects, info.warnings].some(arr => Array.isArray(arr) && arr.length > 0) || !!info.reference_image_query;
+                    setMedicationInfo(hasDrugCardData ? info : null);
                     setCardCollapsed(window.innerWidth <= 768);
                     setChatMemory(finalMemory);
+                    if (personalMemoryEnabled) {
+                        const nextGlobalMemory = buildPersonalMemory(globalMemory, text, info.answer, response.title || makeChatTitle(text));
+                        setGlobalMemory(nextGlobalMemory);
+                        savePersonalMemoryToCloud(nextGlobalMemory, idToken);
+                    }
                     touchChatToTop(finalChatId, {
                         title: makeChatTitle(text),
                         messages: finalMessages,
                         chatMemory: finalMemory,
-                        medicationInfo: info,
+                        medicationInfo: hasDrugCardData ? info : null,
                         geminiChatId: response.chatId || geminiChatId || ""
                     }, finalChatId !== activeId ? activeId : null);
                     notifyReply();
@@ -1924,7 +1988,7 @@ class CoraWorkerClient {
                 setSidebarCollapsed(prev => !prev);
             };
 
-                const MedicationCard = () => {
+                const MedicationCard = useCallback(() => {
                 if (!medicationInfo) return null;
                 return (
                     <div className={`gpt-card ${cardCollapsed ? "collapsed" : ""}`}>
@@ -1953,7 +2017,7 @@ class CoraWorkerClient {
                         )}
                     </div>
                 );
-            };
+            }, [medicationInfo, cardCollapsed]);
 
             return (
                 <div className="gpt-shell">
@@ -2051,6 +2115,7 @@ class CoraWorkerClient {
                                 <Icon name={personalMemoryEnabled ? "brain" : "brain-circuit"} size={17} />
                                 <span>{personalMemoryEnabled ? "個人記憶模式：開" : "個人記憶模式：關"}</span>
                             </button>
+                            
                             {currentUser && <button onClick={signOutGoogle} className="gpt-new-chat text-zinc-300"><Icon name="log-out" size={17} /><span>登出</span></button>}
                             <div className="cora-legal-links cora-legal-links-mobile" aria-label="CORA legal links">
                                 <a href="https://mixcyanx.github.io/CORA-AI-SYSTEM/privacy.html" target="_blank" rel="noopener noreferrer">隱私權政策</a>
