@@ -1173,6 +1173,143 @@
         }
         .cora-install-btn:hover { filter: brightness(1.04); }
 
+    
+
+        /* v28 iPad/tablet landscape fix:
+           Keep the title/top controls locked, let only chat/history scroll,
+           and keep the personal memory row inside the visible sidebar boundary. */
+        @media (min-width: 769px) and (max-width: 1180px) {
+            html, body, #root {
+                width: 100%;
+                height: 100%;
+                min-height: 100%;
+                overflow: hidden !important;
+            }
+
+            body {
+                position: fixed !important;
+                inset: 0 !important;
+                overscroll-behavior: none !important;
+            }
+
+            .gpt-shell {
+                width: 100% !important;
+                height: 100vh !important;
+                height: 100dvh !important;
+                min-height: 0 !important;
+                overflow: hidden !important;
+            }
+
+            .gpt-sidebar {
+                height: 100vh !important;
+                height: 100dvh !important;
+                max-height: 100vh !important;
+                max-height: 100dvh !important;
+                min-height: 0 !important;
+                overflow: hidden !important;
+                display: flex !important;
+                flex-direction: column !important;
+            }
+
+            .gpt-sidebar-top,
+            .gpt-sidebar > .gpt-new-chat,
+            .gpt-sidebar-footer {
+                flex: 0 0 auto !important;
+            }
+
+            .gpt-history-list {
+                flex: 1 1 auto !important;
+                min-height: 0 !important;
+                overflow-y: auto !important;
+                overflow-x: hidden !important;
+                -webkit-overflow-scrolling: touch;
+                overscroll-behavior: contain;
+            }
+
+            .gpt-sidebar-footer {
+                position: relative !important;
+                bottom: auto !important;
+                z-index: 60002 !important;
+                max-width: 100% !important;
+                overflow: hidden !important;
+                padding-bottom: max(8px, env(safe-area-inset-bottom)) !important;
+                background: var(--gpt-sidebar) !important;
+            }
+
+            .gpt-sidebar-footer .gpt-new-chat,
+            .gpt-sidebar-footer .gpt-user-card,
+            .gpt-sidebar-footer .cora-legal-links {
+                max-width: 100% !important;
+                min-width: 0 !important;
+            }
+
+            .gpt-sidebar-footer .gpt-new-chat span,
+            .gpt-sidebar-footer .gpt-user-card .truncate {
+                min-width: 0 !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                white-space: nowrap !important;
+            }
+
+            .gpt-main {
+                height: 100vh !important;
+                height: 100dvh !important;
+                min-height: 0 !important;
+                overflow: hidden !important;
+                display: flex !important;
+                flex-direction: column !important;
+            }
+
+            .gpt-topbar {
+                flex: 0 0 56px !important;
+                height: 56px !important;
+                min-height: 56px !important;
+                position: relative !important;
+                top: 0 !important;
+                z-index: 60010 !important;
+                background: var(--gpt-bg) !important;
+                border-bottom: 1px solid var(--gpt-border) !important;
+                transform: translateZ(0);
+                -webkit-transform: translateZ(0);
+            }
+
+            .gpt-topbar .gpt-icon-btn,
+            .gpt-sidebar-toggle {
+                position: relative !important;
+                z-index: 60011 !important;
+                flex: 0 0 38px !important;
+            }
+
+            .gpt-chat {
+                flex: 1 1 auto !important;
+                min-height: 0 !important;
+                overflow-y: auto !important;
+                overflow-x: hidden !important;
+                -webkit-overflow-scrolling: touch;
+                overscroll-behavior: contain;
+            }
+
+            .gpt-composer-wrap {
+                flex: 0 0 auto !important;
+                max-height: min(32vh, 230px) !important;
+                overflow-y: auto !important;
+                z-index: 60000 !important;
+                background: var(--gpt-bg) !important;
+                border-top: 1px solid var(--gpt-border) !important;
+            }
+        }
+
+        @media (min-width: 1024px) and (max-width: 1180px) {
+            .gpt-sidebar {
+                width: 240px !important;
+                min-width: 240px !important;
+            }
+
+            .gpt-sidebar-toggle.sidebar-open {
+                left: 194px !important;
+            }
+        }
+
     </style>
 </head>
 <body class="transition-colors duration-300">
