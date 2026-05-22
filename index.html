@@ -1772,6 +1772,16 @@ class OpenAI {
             const [cardCollapsed, setCardCollapsed] = useState(() => window.innerWidth <= 768);
             const [isListening, setIsListening] = useState(false);
 
+            const inputRef = useRef("");
+            const messagesRef = useRef([]);
+            const stagedImagesRef = useRef([]);
+            const chatMemoryRef = useRef([]);
+            const medicationInfoRef = useRef(null);
+            const geminiChatIdRef = useRef(geminiChatId);
+            const idTokenRef = useRef(idToken);
+            const personalMemoryEnabledRef = useRef(personalMemoryEnabled);
+            const handleSendRef = useRef(null);
+
             const scrollRef = useRef(null);
             const audioRef = useRef(null);
             const mouthTimerRef = useRef(null);
@@ -1791,6 +1801,15 @@ class OpenAI {
             const titleLongPressTimerRef = useRef(null);
 
             const client = useMemo(() => new OpenAI("https://royal-surf-f8bc.s02204-hill.workers.dev"), []);
+
+            useEffect(() => { inputRef.current = input; }, [input]);
+            useEffect(() => { messagesRef.current = messages; }, [messages]);
+            useEffect(() => { stagedImagesRef.current = stagedImages; }, [stagedImages]);
+            useEffect(() => { chatMemoryRef.current = chatMemory; }, [chatMemory]);
+            useEffect(() => { medicationInfoRef.current = medicationInfo; }, [medicationInfo]);
+            useEffect(() => { geminiChatIdRef.current = geminiChatId; }, [geminiChatId]);
+            useEffect(() => { idTokenRef.current = idToken; }, [idToken]);
+            useEffect(() => { personalMemoryEnabledRef.current = personalMemoryEnabled; }, [personalMemoryEnabled]);
 
             useEffect(() => {
                 activeSavedChatIdRef.current = activeSavedChatId;
@@ -1981,7 +2000,11 @@ class OpenAI {
                     recognition.onresult = (event) => {
                         const transcript = event.results[0][0].transcript;
                         setInput(transcript);
-                        setTimeout(() => handleSend(transcript), 500);
+                        setTimeout(() => {
+                            if (handleSendRef.current) {
+                                handleSendRef.current(transcript);
+                            }
+                        }, 250);
                     };
                     recognition.onend = () => setIsListening(false);
                     recognition.onerror = () => setIsListening(false);
@@ -2426,29 +2449,40 @@ class OpenAI {
             };
 
             const handleSend = async (overrideInput) => {
-                const currentInput = overrideInput || input;
-                if (sendingRef.current || loading || (!currentInput.trim() && stagedImages.length === 0)) return;
+                const latestInput = inputRef.current || "";
+                const currentInput = overrideInput !== undefined ? overrideInput : latestInput;
+                const latestStagedImages = Array.isArray(stagedImagesRef.current) ? stagedImagesRef.current : [];
+                const latestMessages = Array.isArray(messagesRef.current) ? messagesRef.current : [];
+                const latestMemory = Array.isArray(chatMemoryRef.current) ? chatMemoryRef.current : [];
+                const latestMedicationInfo = medicationInfoRef.current;
+                const latestGeminiChatId = geminiChatIdRef.current;
+                const latestIdToken = idTokenRef.current;
+                const latestPersonalMemoryEnabled = personalMemoryEnabledRef.current;
+
+                if (sendingRef.current || loading || (!String(currentInput || "").trim() && latestStagedImages.length === 0)) return;
                 sendingRef.current = true;
 
-                const text = currentInput.trim() || "請協助分析這些藥物相關圖片。";
-                const currentImages = stagedImages.map(img => img.data);
+                const text = String(currentInput || "").trim() || "請協助分析這些藥物相關圖片。";
+                const currentImages = latestStagedImages.map(img => img.data).filter(Boolean);
                 
                 setInput("");
+                inputRef.current = "";
                 setStagedImages([]);
+                stagedImagesRef.current = [];
                 
                 const userMessage = { id: Date.now().toString(), role: "user", content: text, images: currentImages };
-                const nextMessagesBeforeSend = [...messages, userMessage];
+                const nextMessagesBeforeSend = [...latestMessages, userMessage];
                 setMessages(nextMessagesBeforeSend);
                 const activeId = activeSavedChatIdRef.current || activeSavedChatId || `local-${Date.now()}`;
                 if (!activeSavedChatIdRef.current) setActiveSavedChatId(activeId);
                 touchChatToTop(activeId, {
                     title: makeChatTitle(text),
                     messages: nextMessagesBeforeSend,
-                    chatMemory: [...chatMemory, { role: "user", content: text }].slice(-10),
-                    medicationInfo,
-                    geminiChatId: geminiChatId || ""
+                    chatMemory: [...latestMemory, { role: "user", content: text }].slice(-10),
+                    medicationInfo: latestMedicationInfo,
+                    geminiChatId: latestGeminiChatId || ""
                 });
-                const currentMemory = [...chatMemory, { role: "user", content: text }].slice(-10);
+                const currentMemory = [...latestMemory, { role: "user", content: text }].slice(-10);
                 setChatMemory(currentMemory);
                 const shouldShowImageAnimation = isImageGenerationPrompt(text);
                 setImageGenerating(shouldShowImageAnimation);
@@ -2457,7 +2491,7 @@ class OpenAI {
                 try {
                     const systemPrompt = `你是一位名叫 Cora 的專業且親切的藥劑師助手，回答要自然、簡潔、像真人藥師聊天。請以 JSON 格式回傳：{"answer": "口語解釋", "ingredients": [], "indications": [], "side_effects": [], "warnings": [], "reference_image_query": "搜尋關鍵字"}。使用繁體中文。`;
                     
-                    const history = [...messages, userMessage].slice(-6).map(msg => {
+                    const history = [...latestMessages, userMessage].slice(-6).map(msg => {
                         let content = msg.content;
                         if (msg.images && msg.images.length > 0) {
                             content = [{ type: "text", text: msg.content }];
@@ -2466,9 +2500,9 @@ class OpenAI {
                         return { role: msg.role, content };
                     });
 
-                    const response = await client.ask(text, personalMemoryEnabled ? currentMemory : [], geminiChatId, idToken, activeId, currentImages, nextMessagesBeforeSend, personalMemoryEnabled);
+                    const response = await client.ask(text, latestPersonalMemoryEnabled ? currentMemory : [], latestGeminiChatId, latestIdToken, activeId, currentImages, nextMessagesBeforeSend, latestPersonalMemoryEnabled);
 
-                    if (response.chatId && response.chatId !== geminiChatId) {
+                    if (response.chatId && response.chatId !== latestGeminiChatId) {
                         setGeminiChatId(response.chatId);
                         localStorage.setItem("CORA_GEMINIDATA_CHAT_ID", response.chatId);
                     }
@@ -2540,7 +2574,7 @@ class OpenAI {
                         messages: finalMessages,
                         chatMemory: finalMemory,
                         medicationInfo: info,
-                        geminiChatId: response.chatId || geminiChatId || ""
+                        geminiChatId: response.chatId || latestGeminiChatId || ""
                     }, finalChatId !== activeId ? activeId : null);
                     notifyReply();
                     speakLocal(info.answer);
@@ -2557,6 +2591,10 @@ class OpenAI {
                     sendingRef.current = false;
                 }
             };
+
+            useEffect(() => {
+                handleSendRef.current = handleSend;
+            });
 
             const toggleSidebar = () => {
                 if (window.innerWidth <= 768) {
