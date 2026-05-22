@@ -1422,6 +1422,99 @@
                 left: 214px !important;
             }
         }
+
+
+        /* v31 final iPad/tablet sidebar toggle hard lock:
+           Fixes iPad landscape/tablet widths where old desktop fixed positioning
+           or topbar space-between can push the sidebar button to the center/right. */
+        @media (max-width: 1180px) {
+            .gpt-topbar {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: flex-start !important;
+                gap: 8px !important;
+                padding-left: max(10px, env(safe-area-inset-left)) !important;
+                padding-right: max(10px, env(safe-area-inset-right)) !important;
+                overflow: visible !important;
+            }
+
+            .gpt-topbar > .flex.items-center.gap-2.min-w-0:first-child {
+                flex: 1 1 auto !important;
+                min-width: 0 !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: flex-start !important;
+                order: 0 !important;
+            }
+
+            .gpt-topbar > .flex.items-center.gap-1:last-child {
+                flex: 0 0 auto !important;
+                margin-left: auto !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: flex-end !important;
+                order: 1 !important;
+            }
+
+            .gpt-topbar .gpt-sidebar-toggle,
+            .gpt-sidebar-toggle,
+            .gpt-topbar .gpt-sidebar-toggle.sidebar-open,
+            .gpt-sidebar-toggle.sidebar-open,
+            .gpt-topbar .gpt-sidebar-toggle.sidebar-closed,
+            .gpt-sidebar-toggle.sidebar-closed {
+                position: static !important;
+                top: auto !important;
+                left: auto !important;
+                right: auto !important;
+                bottom: auto !important;
+                transform: none !important;
+                translate: none !important;
+                margin: 0 !important;
+                inset: auto !important;
+                width: 38px !important;
+                height: 38px !important;
+                min-width: 38px !important;
+                flex: 0 0 38px !important;
+                order: 0 !important;
+                z-index: 70050 !important;
+            }
+
+            .gpt-topbar .mobile-only-title {
+                display: block !important;
+                max-width: calc(100vw - 178px) !important;
+            }
+        }
+
+        @media (min-width: 1181px) {
+            .gpt-topbar .gpt-sidebar-toggle,
+            .gpt-sidebar-toggle {
+                position: fixed !important;
+                top: 10px !important;
+                left: 214px !important;
+                right: auto !important;
+                bottom: auto !important;
+                width: 38px !important;
+                height: 38px !important;
+                min-width: 38px !important;
+                flex: 0 0 38px !important;
+                z-index: 70020 !important;
+                transform: none !important;
+                margin: 0 !important;
+            }
+
+            .gpt-topbar .gpt-sidebar-toggle.sidebar-closed,
+            .gpt-sidebar-toggle.sidebar-closed {
+                left: 12px !important;
+                right: auto !important;
+            }
+
+            .gpt-topbar .gpt-sidebar-toggle.sidebar-open,
+            .gpt-sidebar-toggle.sidebar-open {
+                left: 214px !important;
+                right: auto !important;
+            }
+        }
+
 </style>
 </head>
 <body class="transition-colors duration-300">
