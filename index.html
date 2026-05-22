@@ -1310,6 +1310,65 @@
             }
         }
 
+
+        /* v29 sidebar toggle position fix:
+           v28 tablet rules accidentally changed the sidebar toggle to relative positioning.
+           Keep the button locked beside the sidebar divider on desktop/tablet,
+           and only use normal static placement on phone width. */
+        @media (min-width: 769px) {
+            .gpt-topbar .gpt-sidebar-toggle,
+            .gpt-sidebar-toggle {
+                position: fixed !important;
+                top: 10px !important;
+                left: 214px !important;
+                width: 38px !important;
+                height: 38px !important;
+                flex: 0 0 38px !important;
+                z-index: 70020 !important;
+                transform: none !important;
+                background: transparent !important;
+                transition: left .22s ease, background .16s ease, transform .22s ease !important;
+            }
+
+            .gpt-topbar .gpt-sidebar-toggle.sidebar-closed,
+            .gpt-sidebar-toggle.sidebar-closed {
+                left: 12px !important;
+            }
+
+            .gpt-topbar .gpt-sidebar-toggle.sidebar-open,
+            .gpt-sidebar-toggle.sidebar-open {
+                left: 214px !important;
+            }
+
+            .gpt-sidebar-toggle:hover {
+                background: var(--gpt-surface-2) !important;
+            }
+        }
+
+        @media (min-width: 1024px) and (max-width: 1180px) {
+            .gpt-topbar .gpt-sidebar-toggle.sidebar-open,
+            .gpt-sidebar-toggle.sidebar-open {
+                left: 194px !important;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .gpt-topbar .gpt-sidebar-toggle,
+            .gpt-sidebar-toggle,
+            .gpt-topbar .gpt-sidebar-toggle.sidebar-open,
+            .gpt-sidebar-toggle.sidebar-open,
+            .gpt-topbar .gpt-sidebar-toggle.sidebar-closed,
+            .gpt-sidebar-toggle.sidebar-closed {
+                position: relative !important;
+                top: auto !important;
+                left: auto !important;
+                width: 38px !important;
+                height: 38px !important;
+                flex: 0 0 38px !important;
+                z-index: 60011 !important;
+            }
+        }
+
     </style>
 </head>
 <body class="transition-colors duration-300">
