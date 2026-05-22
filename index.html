@@ -1047,9 +1047,9 @@
             return <span ref={iconRef} className={`inline-flex items-center justify-center ${className}`} style={{ width: size, height: size, minWidth: size, minHeight: size }} />;
         };
 
-        // --- OpenAI SDK Mini Implementation ---
+        // --- CORA Worker SDK：GeminiData 查資料，Google Gemini 做聊天修飾與語音 ---
         
-class OpenAI {
+class CoraWorkerClient {
     constructor(workerUrl) { this.workerUrl = workerUrl; }
 
     async request(payload, idToken = null) {
@@ -1087,7 +1087,7 @@ class OpenAI {
 
 
         const DEFAULT_BASE_URL = "https://royal-surf-f8bc.s02204-hill.workers.dev";
-        const DEFAULT_API_KEY = "";
+        // Google Gemini API Key 放在 Cloudflare Worker 的 GOOGLE_GEMINI_API_KEY，不放前端。
         const LOCAL_CHAT_STORAGE_KEY = "CORA_LOCAL_PENDING_CHATS";
 
         const readLocalChats = () => {
@@ -1262,7 +1262,7 @@ class OpenAI {
             const sendingRef = useRef(false);
             const activeSavedChatIdRef = useRef(null);
 
-            const client = useMemo(() => new OpenAI("https://royal-surf-f8bc.s02204-hill.workers.dev"), []);
+            const client = useMemo(() => new CoraWorkerClient("https://royal-surf-f8bc.s02204-hill.workers.dev"), []);
 
             useEffect(() => {
                 activeSavedChatIdRef.current = activeSavedChatId;
@@ -1710,10 +1710,9 @@ class OpenAI {
 
                     if (!audioEnabled || !text) return;
 
-                    // 優先使用穩定 TTS API：Cloudflare Worker action: "tts"
-                    // Worker 應回傳：
-                    // { audioUrl: "https://..." }
-                    // 或 { audioBase64: "base64 mp3/wav", mimeType: "audio/mpeg" }
+                    // 使用新的 Google Gemini TTS：Cloudflare Worker action: "tts"
+                    // GeminiData 只負責 Knowledge Graph 查詢，不負責語音。
+                    // Worker 應回傳 { audioBase64, mimeType } 或 { audioUrl }。
                     const ttsData = await client.tts(text, idToken);
 
                     let audioSrc = "";
@@ -1725,7 +1724,7 @@ class OpenAI {
                     }
 
                     if (!audioSrc) {
-                        throw new Error("TTS API 沒有回傳音訊");
+                        throw new Error("Google Gemini TTS 沒有回傳音訊");
                     }
 
                     const audio = new Audio(audioSrc);
@@ -1743,44 +1742,9 @@ class OpenAI {
 
                 } catch (err) {
 
-                    console.warn("TTS API 失敗，改用瀏覽器語音：", err);
-
+                    console.warn("Google Google Gemini TTS 失敗，不退回瀏覽器語音：", err);
                     stopMouth();
-
-                    if (!('speechSynthesis' in window) || !audioEnabled) return;
-
-                    const utterance = new SpeechSynthesisUtterance(text);
-                    utterance.lang = "zh-TW";
-                    utterance.rate = 1.02;
-                    utterance.pitch = 1.03;
-                    utterance.volume = 1;
-
-                    const voices = window.speechSynthesis.getVoices();
-                    const preferredVoice =
-                        voices.find(v => v.name.includes("HsiaoChen")) ||
-                        voices.find(v => v.name.includes("HanHan")) ||
-                        voices.find(v => v.name.includes("Microsoft") && v.lang === "zh-TW") ||
-                        voices.find(v => v.lang === "zh-TW") ||
-                        voices.find(v => v.lang.startsWith("zh"));
-
-                    if (preferredVoice) {
-                        utterance.voice = preferredVoice;
-                    }
-
-                    utterance.onstart = () => {
-                        if (audioEnabled) {
-                            startSynthMouth();
-                            const estimatedMs = Math.max(900, (String(text).length / 5.8) * 1000 - 800);
-                            mouthEarlyStopRef.current = setTimeout(() => setMouthInstant(false), estimatedMs);
-                        }
-                    };
-
-                    utterance.onend = stopMouth;
-                    utterance.onerror = stopMouth;
-                    utterance.onpause = stopMouth;
-
-                    window.speechSynthesis.cancel();
-                    window.speechSynthesis.speak(utterance);
+                    window.speechSynthesis?.cancel();
                 }
             };
 
