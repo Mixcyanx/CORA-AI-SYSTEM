@@ -857,6 +857,46 @@
             }
         }
 
+        
+
+        /* v20 mobile/tablet sidebar overlay fix:
+           The dark backdrop and drawer shadow are visible only while the sidebar is open. */
+        @media (max-width: 1023px) {
+            .gpt-sidebar {
+                position: fixed !important;
+                inset: 0 auto 0 0 !important;
+                z-index: 60000 !important;
+                transform: translateX(-110%) !important;
+                transition: transform .22s ease, box-shadow .22s ease !important;
+                box-shadow: none !important;
+                opacity: 1 !important;
+            }
+
+            .gpt-sidebar.open {
+                transform: translateX(0) !important;
+                box-shadow: 18px 0 45px rgba(0,0,0,.35) !important;
+            }
+
+            .gpt-sidebar:not(.open) {
+                pointer-events: none !important;
+                box-shadow: none !important;
+            }
+
+            .gpt-mobile-backdrop {
+                display: none !important;
+                opacity: 0 !important;
+                pointer-events: none !important;
+                background: rgba(0,0,0,.45) !important;
+                transition: opacity .18s ease !important;
+            }
+
+            .gpt-mobile-backdrop.active {
+                display: block !important;
+                opacity: 1 !important;
+                pointer-events: auto !important;
+            }
+        }
+
         </style>
 </head>
 <body class="transition-colors duration-300">
@@ -1892,7 +1932,7 @@ class OpenAI {
                         </div>
                     )}
 
-                    {historyOpen && <div className="gpt-mobile-backdrop md:hidden" onClick={() => setHistoryOpen(false)}></div>}
+                    {historyOpen && <div className="gpt-mobile-backdrop active" onClick={() => setHistoryOpen(false)}></div>}
 
                     <aside className={`gpt-sidebar ${historyOpen ? "open" : ""} ${sidebarCollapsed ? "desktop-collapsed" : ""}`}>
                         <div className="gpt-sidebar-top">
