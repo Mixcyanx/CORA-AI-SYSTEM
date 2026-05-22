@@ -1369,7 +1369,60 @@
             }
         }
 
-    </style>
+    
+
+        /* v30 iPad/tablet sidebar toggle correction:
+           On iPad-sized layouts the sidebar is drawer/fixed and the old desktop fixed-left value
+           makes the toggle appear around the middle of the screen. Keep it inside the topbar. */
+        @media (min-width: 769px) and (max-width: 1180px) {
+            .gpt-topbar {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: space-between !important;
+            }
+
+            .gpt-topbar .gpt-sidebar-toggle,
+            .gpt-sidebar-toggle,
+            .gpt-topbar .gpt-sidebar-toggle.sidebar-open,
+            .gpt-sidebar-toggle.sidebar-open,
+            .gpt-topbar .gpt-sidebar-toggle.sidebar-closed,
+            .gpt-sidebar-toggle.sidebar-closed {
+                position: relative !important;
+                top: auto !important;
+                left: auto !important;
+                right: auto !important;
+                width: 38px !important;
+                height: 38px !important;
+                flex: 0 0 38px !important;
+                z-index: 70030 !important;
+                transform: none !important;
+                margin: 0 !important;
+            }
+        }
+
+        /* Restore the desktop divider-lock only on wider desktop screens. */
+        @media (min-width: 1181px) {
+            .gpt-topbar .gpt-sidebar-toggle,
+            .gpt-sidebar-toggle {
+                position: fixed !important;
+                top: 10px !important;
+                left: 214px !important;
+                width: 38px !important;
+                height: 38px !important;
+                flex: 0 0 38px !important;
+                z-index: 70020 !important;
+                transform: none !important;
+            }
+            .gpt-topbar .gpt-sidebar-toggle.sidebar-closed,
+            .gpt-sidebar-toggle.sidebar-closed {
+                left: 12px !important;
+            }
+            .gpt-topbar .gpt-sidebar-toggle.sidebar-open,
+            .gpt-sidebar-toggle.sidebar-open {
+                left: 214px !important;
+            }
+        }
+</style>
 </head>
 <body class="transition-colors duration-300">
     <div id="root"></div>
