@@ -1080,7 +1080,19 @@
             100% { transform: translate(-50%, -50%) scale(.72); opacity: .35; }
         }
 
-        </style>
+        
+        /* v26: TTS uses browser only; medication card keeps independent scroll even while speech is playing. */
+        .gpt-card-under-input,
+        .gpt-card-under-input .gpt-card,
+        .gpt-card-under-input .gpt-card-grid,
+        .gpt-card-in-chat,
+        .gpt-card-in-chat .gpt-card,
+        .gpt-card-in-chat .gpt-card-grid {
+            pointer-events: auto !important;
+            touch-action: pan-y !important;
+        }
+
+    </style>
 </head>
 <body class="transition-colors duration-300">
     <div id="root"></div>
@@ -1096,7 +1108,14 @@
             useEffect(() => {
                 if (iconRef.current && window.lucide) {
                     // Convert kebab-case to PascalCase for Lucide CDN icons
-                    const pascalName = name.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');
+                    const aliasMap = {
+                        "log-out": "LogOut",
+                        "trash-2": "Trash2",
+                        "sparkles": "Sparkles",
+                        "brain-circuit": "BrainCircuit",
+                        "panel-left": "PanelLeft"
+                    };
+                    const pascalName = aliasMap[name] || name.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');
                     
                     // Try to find the icon in lucide.icons or lucide directly
                     const icon = (lucide.icons && lucide.icons[pascalName]) || 
@@ -1845,43 +1864,8 @@ class OpenAI {
 
                     if (!audioEnabled || !text) return;
 
-                    // 優先使用穩定 TTS API：Cloudflare Worker action: "tts"
-                    // Worker 應回傳：
-                    // { audioUrl: "https://..." }
-                    // 或 { audioBase64: "base64 mp3/wav", mimeType: "audio/mpeg" }
-                    const ttsData = await client.tts(text, idToken);
-
-                    let audioSrc = "";
-
-                    if (ttsData?.audioUrl) {
-                        audioSrc = ttsData.audioUrl;
-                    } else if (ttsData?.audioBase64) {
-                        audioSrc = `data:${ttsData.mimeType || "audio/mpeg"};base64,${ttsData.audioBase64}`;
-                    }
-
-                    if (!audioSrc) {
-                        throw new Error("TTS API 沒有回傳音訊");
-                    }
-
-                    const audio = new Audio(audioSrc);
-                    ttsAudioRef.current = audio;
-
-                    audio.onplay = () => {
-                        if (audioEnabled) startVolumeMouth(audio);
-                    };
-
-                    audio.onended = stopMouth;
-                    audio.onerror = stopMouth;
-                    audio.onpause = stopMouth;
-
-                    await audio.play();
-
-                } catch (err) {
-
-                    console.warn("TTS API 失敗，改用瀏覽器語音：", err);
-
-                    stopMouth();
-
+                    // v26：停用外部 AI TTS，不再呼叫 Worker action: "tts"，避免 501 / API 失敗影響聊天。
+                    // 語音播放一律使用瀏覽器內建 speechSynthesis。
                     if (!('speechSynthesis' in window) || !audioEnabled) return;
 
                     const utterance = new SpeechSynthesisUtterance(text);
@@ -1916,6 +1900,11 @@ class OpenAI {
 
                     window.speechSynthesis.cancel();
                     window.speechSynthesis.speak(utterance);
+
+                } catch (err) {
+
+                    console.warn("瀏覽器 TTS 播放失敗：", err);
+                    stopMouth();
                 }
             };
 
