@@ -859,8 +859,9 @@
 
         
 
-        /* v20 mobile/tablet sidebar overlay fix:
-           The dark backdrop and drawer shadow are visible only while the sidebar is open. */
+        /* v21 mobile/tablet sidebar fix:
+           Sidebar opening must not dim or blacken the whole chat screen.
+           The invisible backdrop is only kept as a tap-outside-to-close layer. */
         @media (max-width: 1023px) {
             .gpt-sidebar {
                 position: fixed !important;
@@ -874,7 +875,7 @@
 
             .gpt-sidebar.open {
                 transform: translateX(0) !important;
-                box-shadow: 18px 0 45px rgba(0,0,0,.35) !important;
+                box-shadow: 8px 0 20px rgba(0,0,0,.14) !important;
             }
 
             .gpt-sidebar:not(.open) {
@@ -882,18 +883,22 @@
                 box-shadow: none !important;
             }
 
-            .gpt-mobile-backdrop {
-                display: none !important;
-                opacity: 0 !important;
-                pointer-events: none !important;
-                background: rgba(0,0,0,.45) !important;
-                transition: opacity .18s ease !important;
-            }
-
+            .gpt-mobile-backdrop,
             .gpt-mobile-backdrop.active {
+                position: fixed !important;
+                inset: 0 !important;
+                z-index: 59999 !important;
                 display: block !important;
                 opacity: 1 !important;
                 pointer-events: auto !important;
+                background: transparent !important;
+                backdrop-filter: none !important;
+                -webkit-backdrop-filter: none !important;
+            }
+
+            .gpt-mobile-backdrop:not(.active) {
+                display: none !important;
+                pointer-events: none !important;
             }
         }
 
