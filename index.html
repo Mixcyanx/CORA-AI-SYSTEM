@@ -861,13 +861,14 @@
 
 
 
-        /* v22 legal links: suitable for Firebase review on desktop and mobile */
+        /* v23 legal links placement:
+           Desktop: right side of CORA disclaimer.
+           Mobile/tablet: under logout inside sidebar footer. */
         .cora-legal-links {
             display: flex;
             flex-wrap: wrap;
             align-items: center;
             gap: 6px;
-            padding: 8px 10px 4px;
             color: var(--gpt-muted);
             font-size: 11px;
             line-height: 1.45;
@@ -876,16 +877,60 @@
             color: var(--gpt-muted);
             text-decoration: none;
             border-bottom: 1px solid transparent;
+            white-space: nowrap;
         }
         .cora-legal-links a:hover {
             color: var(--gpt-text);
             border-bottom-color: currentColor;
         }
         .cora-legal-dot { opacity: .65; }
+        .cora-legal-links-mobile { display: none; }
+        .cora-disclaimer-row {
+            max-width: 700px;
+            margin: 8px auto 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            color: var(--gpt-muted);
+            font-size: 11px;
+            line-height: 1.45;
+            text-align: center;
+        }
+        .cora-disclaimer-row .gpt-disclaimer {
+            max-width: none;
+            margin: 0 !important;
+            text-align: center;
+        }
+        .cora-disclaimer-row .cora-legal-links-desktop {
+            flex: 0 0 auto;
+        }
+        @media (min-width: 1024px) {
+            .cora-disclaimer-row {
+                margin-left: clamp(260px, 28vw, 430px) !important;
+                margin-right: clamp(16px, 4vw, 72px) !important;
+                max-width: none !important;
+                width: auto !important;
+                justify-content: center;
+            }
+        }
+        @media (min-width: 1024px) and (max-width: 1240px) {
+            .cora-disclaimer-row {
+                margin-left: clamp(215px, 25vw, 300px) !important;
+                margin-right: 18px !important;
+            }
+        }
         @media (max-width: 1023px) {
-            .cora-legal-links {
-                padding: 10px 12px 6px;
+            .cora-legal-links-desktop { display: none !important; }
+            .cora-legal-links-mobile {
+                display: flex;
+                padding: 6px 12px 8px;
                 font-size: 12px;
+            }
+            .cora-disclaimer-row {
+                max-width: 760px;
+                margin: 8px auto 0;
+                display: block;
             }
         }
 
@@ -2012,12 +2057,12 @@ class OpenAI {
                                 <Icon name={personalMemoryEnabled ? "brain" : "brain-circuit"} size={17} />
                                 <span>{personalMemoryEnabled ? "個人記憶模式：開" : "個人記憶模式：關"}</span>
                             </button>
-                            <div className="cora-legal-links" aria-label="CORA legal links">
+                            {currentUser && <button onClick={signOutGoogle} className="gpt-new-chat text-zinc-300"><Icon name="log-out" size={17} /><span>登出</span></button>}
+                            <div className="cora-legal-links cora-legal-links-mobile" aria-label="CORA legal links">
                                 <a href="https://mixcyanx.github.io/CORA-AI-SYSTEM/privacy.html" target="_blank" rel="noopener noreferrer">隱私權政策</a>
                                 <span className="cora-legal-dot">•</span>
                                 <a href="https://mixcyanx.github.io/CORA-AI-SYSTEM/terms.html" target="_blank" rel="noopener noreferrer">服務條款</a>
                             </div>
-                            {currentUser && <button onClick={signOutGoogle} className="gpt-new-chat text-zinc-300"><Icon name="log-out" size={17} /><span>登出</span></button>}
                         </div>
                     </aside>
 
@@ -2116,7 +2161,14 @@ class OpenAI {
                                     <button onClick={() => handleSend()} disabled={loading || (!input.trim() && stagedImages.length === 0)} className="gpt-send" title="送出"><Icon name="arrow-up" size={18} /></button>
                                 </div>
                             </div>
-                            <div className="gpt-disclaimer">CORA 可能會出錯。本系統僅供衛教參考，實際用藥請務必諮詢醫師或藥師。</div>
+                            <div className="cora-disclaimer-row">
+                                <div className="gpt-disclaimer">CORA 可能會出錯。本系統僅供衛教參考，實際用藥請務必諮詢醫師或藥師。</div>
+                                <div className="cora-legal-links cora-legal-links-desktop" aria-label="CORA legal links">
+                                    <a href="https://mixcyanx.github.io/CORA-AI-SYSTEM/privacy.html" target="_blank" rel="noopener noreferrer">隱私權政策</a>
+                                    <span className="cora-legal-dot">•</span>
+                                    <a href="https://mixcyanx.github.io/CORA-AI-SYSTEM/terms.html" target="_blank" rel="noopener noreferrer">服務條款</a>
+                                </div>
+                            </div>
                             {medicationInfo && (
                                 <div className="gpt-card-under-input">
                                     <MedicationCard />
