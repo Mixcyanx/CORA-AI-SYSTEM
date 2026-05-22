@@ -859,9 +859,39 @@
 
         
 
-        /* v21 mobile/tablet sidebar fix:
-           Sidebar opening must not dim or blacken the whole chat screen.
-           The invisible backdrop is only kept as a tap-outside-to-close layer. */
+
+
+        /* v22 legal links: suitable for Firebase review on desktop and mobile */
+        .cora-legal-links {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 10px 4px;
+            color: var(--gpt-muted);
+            font-size: 11px;
+            line-height: 1.45;
+        }
+        .cora-legal-links a {
+            color: var(--gpt-muted);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+        }
+        .cora-legal-links a:hover {
+            color: var(--gpt-text);
+            border-bottom-color: currentColor;
+        }
+        .cora-legal-dot { opacity: .65; }
+        @media (max-width: 1023px) {
+            .cora-legal-links {
+                padding: 10px 12px 6px;
+                font-size: 12px;
+            }
+        }
+
+        /* v22 mobile/tablet sidebar fix:
+           Sidebar opening keeps a light dim layer on the chat area only;
+           sidebar closed state has no remaining black/gradient strip. */
         @media (max-width: 1023px) {
             .gpt-sidebar {
                 position: fixed !important;
@@ -875,7 +905,7 @@
 
             .gpt-sidebar.open {
                 transform: translateX(0) !important;
-                box-shadow: 8px 0 20px rgba(0,0,0,.14) !important;
+                box-shadow: 8px 0 20px rgba(0,0,0,.16) !important;
             }
 
             .gpt-sidebar:not(.open) {
@@ -891,9 +921,10 @@
                 display: block !important;
                 opacity: 1 !important;
                 pointer-events: auto !important;
-                background: transparent !important;
+                background: rgba(0,0,0,.22) !important;
                 backdrop-filter: none !important;
                 -webkit-backdrop-filter: none !important;
+                transition: opacity .18s ease !important;
             }
 
             .gpt-mobile-backdrop:not(.active) {
@@ -1981,6 +2012,11 @@ class OpenAI {
                                 <Icon name={personalMemoryEnabled ? "brain" : "brain-circuit"} size={17} />
                                 <span>{personalMemoryEnabled ? "個人記憶模式：開" : "個人記憶模式：關"}</span>
                             </button>
+                            <div className="cora-legal-links" aria-label="CORA legal links">
+                                <a href="https://mixcyanx.github.io/CORA-AI-SYSTEM/privacy.html" target="_blank" rel="noopener noreferrer">隱私權政策</a>
+                                <span className="cora-legal-dot">•</span>
+                                <a href="https://mixcyanx.github.io/CORA-AI-SYSTEM/terms.html" target="_blank" rel="noopener noreferrer">服務條款</a>
+                            </div>
                             {currentUser && <button onClick={signOutGoogle} className="gpt-new-chat text-zinc-300"><Icon name="log-out" size={17} /><span>登出</span></button>}
                         </div>
                     </aside>
