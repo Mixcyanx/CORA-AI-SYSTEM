@@ -1092,6 +1092,87 @@
             touch-action: pan-y !important;
         }
 
+
+        /* v27 add-to-home-screen long-press title feature */
+        .cora-title-installable {
+            user-select: none !important;
+            -webkit-user-select: none !important;
+            -webkit-touch-callout: none !important;
+            cursor: pointer;
+            touch-action: manipulation;
+        }
+        .cora-install-modal-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 120000;
+            background: rgba(0,0,0,.52);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 18px;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+        .cora-install-modal {
+            width: min(420px, 100%);
+            border: 1px solid var(--gpt-border);
+            border-radius: 24px;
+            background: color-mix(in srgb, var(--gpt-surface) 92%, transparent);
+            color: var(--gpt-text);
+            box-shadow: 0 24px 90px rgba(0,0,0,.34);
+            overflow: hidden;
+        }
+        .cora-install-modal-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 18px 18px 12px;
+            border-bottom: 1px solid var(--gpt-border);
+        }
+        .cora-install-modal-title {
+            font-size: 17px;
+            font-weight: 800;
+            letter-spacing: -.01em;
+        }
+        .cora-install-modal-body {
+            padding: 16px 18px 18px;
+            color: var(--gpt-muted);
+            font-size: 14px;
+            line-height: 1.75;
+        }
+        .cora-install-modal-body strong { color: var(--gpt-text); }
+        .cora-install-steps {
+            margin-top: 12px;
+            padding: 12px 14px;
+            border-radius: 16px;
+            background: var(--gpt-bg);
+            border: 1px solid var(--gpt-border);
+        }
+        .cora-install-steps div + div { margin-top: 6px; }
+        .cora-install-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            padding: 0 18px 18px;
+        }
+        .cora-install-btn {
+            min-height: 40px;
+            border: 1px solid var(--gpt-border);
+            border-radius: 14px;
+            padding: 0 16px;
+            font-weight: 700;
+            background: var(--gpt-surface-2);
+            color: var(--gpt-text);
+            cursor: pointer;
+        }
+        .cora-install-btn.primary {
+            background: var(--gpt-accent);
+            color: var(--gpt-accent-text);
+            border-color: transparent;
+        }
+        .cora-install-btn:hover { filter: brightness(1.04); }
+
     </style>
 </head>
 <body class="transition-colors duration-300">
@@ -1339,6 +1420,8 @@ class OpenAI {
             const [audioEnabled, setAudioEnabled] = useState(true);
             const [personalMemoryEnabled, setPersonalMemoryEnabled] = useState(() => localStorage.getItem('CORA_PERSONAL_MEMORY_MODE') !== 'off');
             const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
+            const [installModalOpen, setInstallModalOpen] = useState(false);
+            const [deferredInstallPrompt, setDeferredInstallPrompt] = useState(null);
             
             
             
@@ -1363,6 +1446,7 @@ class OpenAI {
             const sendingRef = useRef(false);
             const activeSavedChatIdRef = useRef(null);
             const longPressTimerRef = useRef(null);
+            const titleLongPressTimerRef = useRef(null);
 
             const client = useMemo(() => new OpenAI("https://royal-surf-f8bc.s02204-hill.workers.dev"), []);
 
@@ -1422,6 +1506,65 @@ class OpenAI {
                 }
             };
 
+            const isIOSDevice = () => {
+                const ua = navigator.userAgent || "";
+                return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+            };
+
+            const isStandaloneMode = () => {
+                return window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator.standalone === true;
+            };
+
+            const openInstallModal = () => {
+                if (navigator.vibrate) navigator.vibrate(18);
+                setInstallModalOpen(true);
+            };
+
+            const handleTitleLongPressStart = (event) => {
+                event.preventDefault?.();
+                if (titleLongPressTimerRef.current) clearTimeout(titleLongPressTimerRef.current);
+                titleLongPressTimerRef.current = setTimeout(openInstallModal, 700);
+            };
+
+            const cancelTitleLongPress = () => {
+                if (titleLongPressTimerRef.current) {
+                    clearTimeout(titleLongPressTimerRef.current);
+                    titleLongPressTimerRef.current = null;
+                }
+            };
+
+            const runNativeInstallPrompt = async () => {
+                if (!deferredInstallPrompt) {
+                    return;
+                }
+                try {
+                    deferredInstallPrompt.prompt();
+                    await deferredInstallPrompt.userChoice;
+                } catch (err) {
+                    console.warn("PWA install prompt failed:", err);
+                } finally {
+                    setDeferredInstallPrompt(null);
+                    setInstallModalOpen(false);
+                }
+            };
+
+            useEffect(() => {
+                const handleBeforeInstallPrompt = (event) => {
+                    event.preventDefault();
+                    setDeferredInstallPrompt(event);
+                };
+                const handleAppInstalled = () => {
+                    setDeferredInstallPrompt(null);
+                    setInstallModalOpen(false);
+                };
+                window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+                window.addEventListener("appinstalled", handleAppInstalled);
+                return () => {
+                    window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+                    window.removeEventListener("appinstalled", handleAppInstalled);
+                };
+            }, []);
+
             useEffect(() => {
                 localStorage.setItem('CORA_PERSONAL_MEMORY_MODE', personalMemoryEnabled ? 'on' : 'off');
             }, [personalMemoryEnabled]);
@@ -1447,7 +1590,7 @@ class OpenAI {
             }, []);
 
             useEffect(() => {
-                const shouldLock = historyOpen || loginOpen || !!deleteTargetChat || !!previewImage;
+                const shouldLock = historyOpen || loginOpen || installModalOpen || !!deleteTargetChat || !!previewImage;
                 document.body.style.overflow = shouldLock ? "hidden" : "";
                 document.documentElement.style.overflow = shouldLock ? "hidden" : "";
 
@@ -1455,7 +1598,7 @@ class OpenAI {
                     document.body.style.overflow = "";
                     document.documentElement.style.overflow = "";
                 };
-            }, [historyOpen, loginOpen, deleteTargetChat, previewImage]);
+            }, [historyOpen, loginOpen, installModalOpen, deleteTargetChat, previewImage]);
 
             useEffect(() => {
                 if (!audioEnabled) {
@@ -2227,7 +2370,18 @@ class OpenAI {
                             <div className="flex items-center gap-2 min-w-0">
                                 <button className={`gpt-icon-btn gpt-sidebar-toggle ${sidebarCollapsed ? "sidebar-closed" : "sidebar-open"}`} onClick={toggleSidebar} title={sidebarCollapsed ? "開啟側邊欄" : "收合側邊欄"}><Icon name="panel-left" size={20} /></button>
                                 <div className="min-w-0">
-                                    <div className="gpt-title truncate mobile-only-title">CORA AI</div>
+                                    <div
+                                        className="gpt-title truncate mobile-only-title cora-title-installable"
+                                        title="長按加入主畫面"
+                                        onTouchStart={handleTitleLongPressStart}
+                                        onTouchEnd={cancelTitleLongPress}
+                                        onTouchMove={cancelTitleLongPress}
+                                        onTouchCancel={cancelTitleLongPress}
+                                        onMouseDown={handleTitleLongPressStart}
+                                        onMouseUp={cancelTitleLongPress}
+                                        onMouseLeave={cancelTitleLongPress}
+                                        onContextMenu={(e) => e.preventDefault()}
+                                    >CORA AI</div>
                                 </div>
                             </div>
                             <div className="flex items-center gap-1">
@@ -2347,6 +2501,54 @@ class OpenAI {
                                 </div>
                             )}
                         </div>
+
+                        {installModalOpen && (
+                            <div className="cora-install-modal-backdrop" onClick={() => setInstallModalOpen(false)}>
+                                <motion.div
+                                    className="cora-install-modal"
+                                    initial={{ opacity: 0, scale: .96, y: 12 }}
+                                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                                    exit={{ opacity: 0, scale: .96, y: 12 }}
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    <div className="cora-install-modal-head">
+                                        <div className="cora-install-modal-title">加入 CORA AI 到主畫面</div>
+                                        <button className="gpt-icon-btn" onClick={() => setInstallModalOpen(false)} title="關閉"><Icon name="x" size={20} /></button>
+                                    </div>
+                                    <div className="cora-install-modal-body">
+                                        {isStandaloneMode() ? (
+                                            <div><strong>CORA AI 已經是主畫面 App 模式。</strong><br />你可以直接從手機桌面開啟。</div>
+                                        ) : isIOSDevice() ? (
+                                            <>
+                                                <div><strong>iPhone / iPad 需要手動加入。</strong></div>
+                                                <div className="cora-install-steps">
+                                                    <div>1. 使用 Safari 開啟 CORA AI 網頁。</div>
+                                                    <div>2. 點選下方或上方的「分享」按鈕。</div>
+                                                    <div>3. 選擇「加入主畫面」。</div>
+                                                </div>
+                                            </>
+                                        ) : deferredInstallPrompt ? (
+                                            <div>你的瀏覽器支援直接安裝，點選下方按鈕即可加入主畫面。</div>
+                                        ) : (
+                                            <>
+                                                <div><strong>目前瀏覽器尚未提供原生安裝視窗。</strong></div>
+                                                <div className="cora-install-steps">
+                                                    <div>1. 打開瀏覽器右上角選單。</div>
+                                                    <div>2. 選擇「安裝應用程式」或「加入主畫面」。</div>
+                                                    <div>3. 若沒有出現，請確認網站是 HTTPS 並重新整理一次。</div>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                    <div className="cora-install-actions">
+                                        <button className="cora-install-btn" onClick={() => setInstallModalOpen(false)}>稍後</button>
+                                        {!isStandaloneMode() && !isIOSDevice() && deferredInstallPrompt && (
+                                            <button className="cora-install-btn primary" onClick={runNativeInstallPrompt}>立即加入主畫面</button>
+                                        )}
+                                    </div>
+                                </motion.div>
+                            </div>
+                        )}
                     </section>
                 </div>
             );
