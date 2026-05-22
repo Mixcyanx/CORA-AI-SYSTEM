@@ -978,6 +978,28 @@
             }
         }
 
+
+        /* v24 desktop voice playback fix:
+           語音播放 / 角色嘴型動畫期間，側邊欄收合按鈕必須永遠可點擊。 */
+        @media (min-width: 769px) {
+            .gpt-sidebar-toggle {
+                z-index: 2147483647 !important;
+                pointer-events: auto !important;
+                touch-action: manipulation !important;
+                user-select: none !important;
+                -webkit-user-select: none !important;
+            }
+            .gpt-topbar,
+            .gpt-topbar * {
+                pointer-events: auto !important;
+            }
+            .cora-floating-avatar,
+            .cora-floating-avatar *,
+            .cora-floating-avatar-label {
+                pointer-events: none !important;
+            }
+        }
+
         </style>
 </head>
 <body class="transition-colors duration-300">
@@ -1922,11 +1944,19 @@ class OpenAI {
                 }
             };
 
-            const toggleSidebar = () => {
+            const toggleSidebar = (event = null) => {
+                if (event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                }
+
+                // 語音播放、嘴型動畫、TTS audio/speechSynthesis 都不應該阻擋側邊欄收合。
+                // 用 functional update，避免播放期間 React 重新渲染造成狀態卡住。
                 if (window.innerWidth <= 768) {
                     setHistoryOpen(true);
                     return;
                 }
+
                 setSidebarCollapsed(prev => !prev);
             };
 
@@ -2069,7 +2099,7 @@ class OpenAI {
                     <section className={`gpt-main ${sidebarCollapsed ? "sidebar-is-collapsed" : ""}`}>
                         <header className="gpt-topbar">
                             <div className="flex items-center gap-2 min-w-0">
-                                <button className={`gpt-icon-btn gpt-sidebar-toggle ${sidebarCollapsed ? "sidebar-closed" : "sidebar-open"}`} onClick={toggleSidebar} title={sidebarCollapsed ? "開啟側邊欄" : "收合側邊欄"}><Icon name="panel-left" size={20} /></button>
+                                <button type="button" className={`gpt-icon-btn gpt-sidebar-toggle ${sidebarCollapsed ? "sidebar-closed" : "sidebar-open"}`} onClick={(e) => toggleSidebar(e)} title={sidebarCollapsed ? "開啟側邊欄" : "收合側邊欄"} aria-label={sidebarCollapsed ? "開啟側邊欄" : "收合側邊欄"}><Icon name="panel-left" size={20} /></button>
                                 <div className="min-w-0">
                                     <div className="gpt-title truncate mobile-only-title">CORA AI</div>
                                 </div>
