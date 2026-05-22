@@ -978,6 +978,108 @@
             }
         }
 
+
+        /* v25 fixes: medication card scroll during TTS, legal links clickable, mobile long-press copy, image generation animation */
+        .cora-disclaimer-row,
+        .cora-legal-links,
+        .cora-legal-links a {
+            position: relative;
+            z-index: 10002 !important;
+            pointer-events: auto !important;
+        }
+        .gpt-card-under-input .gpt-card,
+        .gpt-card-in-chat .gpt-card {
+            overscroll-behavior: contain;
+            -webkit-overflow-scrolling: touch;
+            touch-action: pan-y;
+        }
+        @media (max-width: 768px) {
+            .gpt-message-row, .gpt-bubble, .gpt-message-text {
+                -webkit-touch-callout: none;
+                -webkit-user-select: none;
+                user-select: none;
+            }
+            .gpt-text-input {
+                -webkit-user-select: text;
+                user-select: text;
+            }
+        }
+        .cora-copy-popover {
+            position: fixed;
+            z-index: 100003;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 10px;
+            border-radius: 999px;
+            border: 1px solid var(--gpt-border);
+            background: var(--gpt-surface);
+            color: var(--gpt-text);
+            box-shadow: 0 12px 34px rgba(0,0,0,.22);
+            font-size: 13px;
+            font-weight: 700;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        .cora-copy-popover button {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            border: 0;
+            background: transparent;
+            color: inherit;
+            cursor: pointer;
+        }
+        .cora-image-generation-card {
+            width: min(280px, 70vw);
+            height: 176px;
+            border-radius: 20px;
+            border: 1px solid var(--gpt-border);
+            background: linear-gradient(135deg, var(--gpt-surface), var(--gpt-surface-2));
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 12px 34px rgba(0,0,0,.10);
+        }
+        .cora-image-generation-card::before {
+            content: "";
+            position: absolute;
+            inset: 14px;
+            border-radius: 16px;
+            border: 2px solid rgba(107,183,255,.55);
+            animation: coraRectPulse 1.1s ease-in-out infinite;
+        }
+        .cora-image-generation-card::after {
+            content: "";
+            position: absolute;
+            width: 76px;
+            height: 76px;
+            border-radius: 18px;
+            border: 2px solid rgba(15,118,110,.42);
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            animation: coraRectScan 1.4s ease-in-out infinite;
+        }
+        .cora-image-generation-label {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 22px;
+            text-align: center;
+            color: var(--gpt-muted);
+            font-size: 13px;
+            font-weight: 700;
+        }
+        @keyframes coraRectPulse {
+            0%,100% { opacity: .45; transform: scale(.96); }
+            50% { opacity: 1; transform: scale(1.02); }
+        }
+        @keyframes coraRectScan {
+            0% { transform: translate(-50%, -50%) scale(.72); opacity: .35; }
+            50% { transform: translate(-50%, -50%) scale(1.18); opacity: .95; }
+            100% { transform: translate(-50%, -50%) scale(.72); opacity: .35; }
+        }
+
         </style>
 </head>
 <body class="transition-colors duration-300">
@@ -1212,6 +1314,8 @@ class OpenAI {
             const [deleteTargetChat, setDeleteTargetChat] = useState(null);
             const [chatLoading, setChatLoading] = useState(false);
             const [loading, setLoading] = useState(false);
+            const [imageGenerating, setImageGenerating] = useState(false);
+            const [copyMenu, setCopyMenu] = useState(null);
             const [isTalking, setIsTalking] = useState(false);
             const [audioEnabled, setAudioEnabled] = useState(true);
             const [personalMemoryEnabled, setPersonalMemoryEnabled] = useState(() => localStorage.getItem('CORA_PERSONAL_MEMORY_MODE') !== 'off');
@@ -1239,12 +1343,65 @@ class OpenAI {
             const recognitionRef = useRef(null);
             const sendingRef = useRef(false);
             const activeSavedChatIdRef = useRef(null);
+            const longPressTimerRef = useRef(null);
 
             const client = useMemo(() => new OpenAI("https://royal-surf-f8bc.s02204-hill.workers.dev"), []);
 
             useEffect(() => {
                 activeSavedChatIdRef.current = activeSavedChatId;
             }, [activeSavedChatId]);
+
+            const isImageGenerationPrompt = (text) => {
+                const source = String(text || "").trim();
+                return /(生成|產生|畫|做一張|設計|create|generate|draw|image|picture|logo|封面|去背|圖片)/i.test(source) &&
+                    !/(分析|辨識|這張|這個藥|藥品|藥物資訊|成分)/i.test(source);
+            };
+
+            const copyTextToClipboard = async (text) => {
+                const value = String(text || "");
+                if (!value) return;
+                try {
+                    await navigator.clipboard.writeText(value);
+                } catch {
+                    const ta = document.createElement("textarea");
+                    ta.value = value;
+                    ta.style.position = "fixed";
+                    ta.style.left = "-9999px";
+                    document.body.appendChild(ta);
+                    ta.focus();
+                    ta.select();
+                    document.execCommand("copy");
+                    document.body.removeChild(ta);
+                }
+                setCopyMenu(null);
+            };
+
+            const openCopyMenu = (event, msg) => {
+                if (window.innerWidth > 768 || !msg?.content) return;
+                const point = event.touches?.[0] || event.changedTouches?.[0] || event;
+                const x = Math.min(Math.max(12, point.clientX || 24), window.innerWidth - 112);
+                const y = Math.min(Math.max(64, (point.clientY || 92) - 52), window.innerHeight - 70);
+                setCopyMenu({ x, y, text: msg.content });
+            };
+
+            const handleMessageTouchStart = (event, msg) => {
+                if (window.innerWidth > 768 || !msg?.content) return;
+                if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+                const touch = event.touches?.[0];
+                const startX = touch?.clientX || 0;
+                const startY = touch?.clientY || 0;
+                longPressTimerRef.current = setTimeout(() => {
+                    if (navigator.vibrate) navigator.vibrate(18);
+                    openCopyMenu({ clientX: startX, clientY: startY }, msg);
+                }, 480);
+            };
+
+            const cancelMessageLongPress = () => {
+                if (longPressTimerRef.current) {
+                    clearTimeout(longPressTimerRef.current);
+                    longPressTimerRef.current = null;
+                }
+            };
 
             useEffect(() => {
                 localStorage.setItem('CORA_PERSONAL_MEMORY_MODE', personalMemoryEnabled ? 'on' : 'off');
@@ -1819,6 +1976,8 @@ class OpenAI {
                 });
                 const currentMemory = [...chatMemory, { role: "user", content: text }].slice(-10);
                 setChatMemory(currentMemory);
+                const shouldShowImageAnimation = isImageGenerationPrompt(text);
+                setImageGenerating(shouldShowImageAnimation);
                 setLoading(true);
 
                 try {
@@ -1887,10 +2046,12 @@ class OpenAI {
                     info.indications = toArray(info.indications);
                     info.side_effects = toArray(info.side_effects);
                     info.warnings = toArray(info.warnings);
+                    const generatedImages = response.generatedImages || response.images || [];
                     const assistantMessage = {
                         id: (Date.now() + 1).toString(),
                         role: "assistant",
                         content: info.answer,
+                        images: generatedImages,
                         medicationInfo: info
                     };
 
@@ -1918,6 +2079,7 @@ class OpenAI {
                     speakLocal(errorText);
                 } finally {
                     setLoading(false);
+                    setImageGenerating(false);
                     sendingRef.current = false;
                 }
             };
@@ -1933,7 +2095,7 @@ class OpenAI {
                 const MedicationCard = () => {
                 if (!medicationInfo) return null;
                 return (
-                    <div className={`gpt-card ${cardCollapsed ? "collapsed" : ""}`}>
+                    <div className={`gpt-card ${cardCollapsed ? "collapsed" : ""}`} onWheel={(e) => e.stopPropagation()} onTouchMove={(e) => e.stopPropagation()}>
                         <div className="gpt-card-head">
                             <button
                                 type="button"
@@ -1962,7 +2124,12 @@ class OpenAI {
             };
 
             return (
-                <div className="gpt-shell">
+                <div className="gpt-shell" onClick={() => copyMenu && setCopyMenu(null)}>
+                    {copyMenu && (
+                        <div className="cora-copy-popover" style={{ left: copyMenu.x, top: copyMenu.y }} onClick={(e) => e.stopPropagation()}>
+                            <button type="button" onClick={() => copyTextToClipboard(copyMenu.text)}><Icon name="copy" size={15} />複製</button>
+                        </div>
+                    )}
                     {deleteTargetChat && (
                         <div className="gpt-modal-backdrop">
                             <div className="gpt-modal">
@@ -2097,7 +2264,15 @@ class OpenAI {
                                         <div className={`gpt-avatar ${msg.role === "assistant" ? "assistant" : ""}`}>
                                             {msg.role === "user" && currentUser?.photoURL ? <img src={currentUser.photoURL} className="w-full h-full object-cover" referrerPolicy="no-referrer" /> : <Icon name={msg.role === "user" ? "user" : "sparkles"} size={16} />}
                                         </div>
-                                        <div className={`gpt-bubble ${msg.role === "user" ? "gpt-user-bubble" : ""} ${msg.images && msg.images.length > 0 ? "gpt-has-images" : ""}`}>
+                                        <div
+                                            className={`gpt-bubble ${msg.role === "user" ? "gpt-user-bubble" : ""} ${msg.images && msg.images.length > 0 ? "gpt-has-images" : ""}`}
+                                            onTouchStart={(e) => handleMessageTouchStart(e, msg)}
+                                            onTouchEnd={cancelMessageLongPress}
+                                            onTouchMove={cancelMessageLongPress}
+                                            onTouchCancel={cancelMessageLongPress}
+                                            onContextMenu={(e) => { if (window.innerWidth <= 768 && msg.content) { e.preventDefault(); openCopyMenu(e, msg); } }}
+                                            onClick={(e) => e.stopPropagation()}
+                                        >
                                             {msg.images && msg.images.length > 0 && (
                                                 <div className={`gpt-images ${msg.images.length === 1 ? "single-image" : "multi-image"}`}>
                                                     {msg.images.map((img, idx) => <img key={idx} src={img} onClick={() => setPreviewImage(img)} className="gpt-image-thumb" />)}
@@ -2114,8 +2289,16 @@ class OpenAI {
                                     <div className="gpt-message-inner">
                                         <div className="gpt-avatar assistant"><Icon name="sparkles" size={16} /></div>
                                         <div className="gpt-bubble flex items-center gap-2">
-                                            <span>Cora 正在查閱資料</span>
-                                            <span className="gpt-loading-dots"><span></span><span></span><span></span></span>
+                                            {imageGenerating ? (
+                                                <div className="cora-image-generation-card">
+                                                    <div className="cora-image-generation-label">Cora 正在生成圖片</div>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <span>Cora 正在查閱資料</span>
+                                                    <span className="gpt-loading-dots"><span></span><span></span><span></span></span>
+                                                </>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
