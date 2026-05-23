@@ -1798,7 +1798,21 @@ class OpenAI {
             const recognitionRef = useRef(null);
             const recognitionStartingRef = useRef(false);
             const voiceAutoModeRef = useRef(false);
+            const voiceRestartTimerRef = useRef(null);
+            const voiceResultTimerRef = useRef(null);
+            const ignoreRecognitionUntilRef = useRef(0);
+            const aiSpeechActiveRef = useRef(false);
+            const lastVoiceSubmitRef = useRef({ text: "", at: 0 });
             const sendingRef = useRef(false);
+            const loadingRef = useRef(false);
+            const voiceManualPausedRef = useRef(false);
+            const voiceGenerationLockRef = useRef(false);
+            const voiceHardPausedForGenerationRef = useRef(false);
+            const voiceLastAssistantTextRef = useRef("");
+            const voiceLastAiFinishedAtRef = useRef(0);
+            const voiceResumeCooldownMsRef = useRef(6500);
+            const lastRequestKeyRef = useRef({ key: "", at: 0 });
+            const sendSafetyTimerRef = useRef(null);
             const activeSavedChatIdRef = useRef(null);
             const longPressTimerRef = useRef(null);
             const titleLongPressTimerRef = useRef(null);
@@ -1807,6 +1821,7 @@ class OpenAI {
 
             useEffect(() => { inputRef.current = input; }, [input]);
             useEffect(() => { messagesRef.current = messages; }, [messages]);
+            useEffect(() => { loadingRef.current = loading; }, [loading]);
             useEffect(() => { stagedImagesRef.current = stagedImages; }, [stagedImages]);
             useEffect(() => { chatMemoryRef.current = chatMemory; }, [chatMemory]);
             useEffect(() => { medicationInfoRef.current = medicationInfo; }, [medicationInfo]);
@@ -2001,15 +2016,41 @@ class OpenAI {
                     recognition.interimResults = false;
                     recognition.lang = 'zh-TW';
                     recognition.onresult = (event) => {
-                        const transcript = event.results[0][0].transcript;
-                        setInput(transcript);
+                        const now = Date.now();
+                        const transcript = String(event.results?.[0]?.[0]?.transcript || "").trim();
                         setIsListening(false);
                         recognitionStartingRef.current = false;
-                        setTimeout(() => {
-                            if (handleSendRef.current) {
-                                handleSendRef.current(transcript, { fromVoice: true });
-                            }
-                        }, 250);
+
+                        // v36：語音送出、AI 生成、瀏覽器朗讀、朗讀後冷卻期間，所有辨識結果一律丟棄。
+                        if (!transcript) return;
+                        if (!voiceAutoModeRef.current) return;
+                        if (voiceHardPausedForGenerationRef.current) return;
+                        if (sendingRef.current || loadingRef.current || voiceGenerationLockRef.current || aiSpeechActiveRef.current || now < ignoreRecognitionUntilRef.current) return;
+                        if (window.speechSynthesis && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) return;
+                        if (now - voiceLastAiFinishedAtRef.current < voiceResumeCooldownMsRef.current) return;
+
+                        const normalizedTranscript = transcript.replace(/\s+/g, "").toLowerCase();
+                        const normalizedLastAi = String(voiceLastAssistantTextRef.current || "").replace(/\s+/g, "").toLowerCase();
+                        if (normalizedLastAi && normalizedTranscript.length >= 4 && normalizedLastAi.includes(normalizedTranscript)) return;
+
+                        const last = lastVoiceSubmitRef.current || { text: "", at: 0 };
+                        if (last.text === transcript && now - last.at < 15000) return;
+                        lastVoiceSubmitRef.current = { text: transcript, at: now };
+
+                        // 一偵測到有效語音就立即硬鎖並強制停止錄音；不要等 setTimeout，避免殘留 onend/onresult 連發。
+                        voiceGenerationLockRef.current = true;
+                        voiceHardPausedForGenerationRef.current = true;
+                        forceStopAllRecognition(120000);
+                        setInput("");
+                        inputRef.current = "";
+
+                        if (voiceResultTimerRef.current) {
+                            clearTimeout(voiceResultTimerRef.current);
+                            voiceResultTimerRef.current = null;
+                        }
+                        if (handleSendRef.current && !sendingRef.current && !loadingRef.current) {
+                            handleSendRef.current(transcript, { fromVoice: true });
+                        }
                     };
                     recognition.onend = () => {
                         setIsListening(false);
@@ -2373,6 +2414,11 @@ class OpenAI {
                 try {
 
                     stopMouth();
+                    if (voiceAutoModeRef.current) {
+                        forceStopAllRecognition(9000);
+                    }
+                    aiSpeechActiveRef.current = true;
+                    ignoreRecognitionUntilRef.current = Date.now() + 9000;
 
                     window.speechSynthesis?.cancel();
 
@@ -2381,11 +2427,19 @@ class OpenAI {
                         ttsAudioRef.current = null;
                     }
 
-                    if (!audioEnabled || !text) return;
+                    if (!audioEnabled || !text) {
+                        aiSpeechActiveRef.current = false;
+                        ignoreRecognitionUntilRef.current = Date.now() + 2500;
+                        return;
+                    }
 
                     // v26：停用外部 AI TTS，不再呼叫 Worker action: "tts"，避免 501 / API 失敗影響聊天。
                     // 語音播放一律使用瀏覽器內建 speechSynthesis。
-                    if (!('speechSynthesis' in window) || !audioEnabled) return;
+                    if (!('speechSynthesis' in window) || !audioEnabled) {
+                        aiSpeechActiveRef.current = false;
+                        ignoreRecognitionUntilRef.current = Date.now() + 2500;
+                        return;
+                    }
 
                     const utterance = new SpeechSynthesisUtterance(text);
                     utterance.lang = "zh-TW";
@@ -2419,20 +2473,26 @@ class OpenAI {
                             if (done) return;
                             done = true;
                             stopMouth();
+                            aiSpeechActiveRef.current = false;
+                            ignoreRecognitionUntilRef.current = Date.now() + 2500;
                             resolve();
                         };
 
                         utterance.onend = finishSpeech;
                         utterance.onerror = finishSpeech;
-                        utterance.onpause = finishSpeech;
+
+                        const fallbackMs = Math.min(45000, Math.max(4000, String(text || "").length * 220));
+                        setTimeout(finishSpeech, fallbackMs);
 
                         window.speechSynthesis.cancel();
-                        window.speechSynthesis.speak(utterance);
+                        setTimeout(() => window.speechSynthesis.speak(utterance), 80);
                     });
 
                 } catch (err) {
 
                     console.warn("瀏覽器 TTS 播放失敗：", err);
+                    aiSpeechActiveRef.current = false;
+                    ignoreRecognitionUntilRef.current = Date.now() + 2500;
                     stopMouth();
                 }
             };
@@ -2444,9 +2504,50 @@ class OpenAI {
                 }
             };
 
+            const clearVoiceTimers = () => {
+                if (voiceRestartTimerRef.current) {
+                    clearTimeout(voiceRestartTimerRef.current);
+                    voiceRestartTimerRef.current = null;
+                }
+                if (voiceResultTimerRef.current) {
+                    clearTimeout(voiceResultTimerRef.current);
+                    voiceResultTimerRef.current = null;
+                }
+            };
+
+            const forceStopAllRecognition = (cooldownMs = 1200) => {
+                clearVoiceTimers();
+                ignoreRecognitionUntilRef.current = Date.now() + cooldownMs;
+                recognitionStartingRef.current = false;
+                setIsListening(false);
+                const recognition = recognitionRef.current;
+                if (!recognition) return;
+                try { recognition.abort?.(); } catch {}
+                try { recognition.stop?.(); } catch {}
+                setTimeout(() => {
+                    try { recognition.abort?.(); } catch {}
+                    try { recognition.stop?.(); } catch {}
+                    recognitionStartingRef.current = false;
+                    setIsListening(false);
+                }, 60);
+            };
+
             const startListeningInternal = () => {
                 const recognition = recognitionRef.current;
-                if (!recognition || recognitionStartingRef.current || sendingRef.current) return;
+                if (!voiceAutoModeRef.current) return;
+                if (!recognition || recognitionStartingRef.current || sendingRef.current || loadingRef.current || voiceGenerationLockRef.current || voiceHardPausedForGenerationRef.current || aiSpeechActiveRef.current) return;
+                if (window.speechSynthesis && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) {
+                    scheduleVoiceRestart(900);
+                    return;
+                }
+
+                const waitMs = ignoreRecognitionUntilRef.current - Date.now();
+                if (waitMs > 0) {
+                    if (voiceRestartTimerRef.current) clearTimeout(voiceRestartTimerRef.current);
+                    voiceRestartTimerRef.current = setTimeout(startListeningInternal, Math.min(waitMs + 80, 1800));
+                    return;
+                }
+
                 try {
                     recognitionStartingRef.current = true;
                     recognition.start();
@@ -2459,24 +2560,40 @@ class OpenAI {
             };
 
             const pauseListeningOnly = () => {
-                recognitionStartingRef.current = false;
-                setIsListening(false);
-                try {
-                    recognitionRef.current?.stop();
-                } catch {}
+                clearVoiceTimers();
+                forceStopAllRecognition(1500);
+            };
+
+            const scheduleVoiceRestart = (delayMs = 900) => {
+                if (voiceRestartTimerRef.current) clearTimeout(voiceRestartTimerRef.current);
+                voiceRestartTimerRef.current = setTimeout(() => {
+                    voiceRestartTimerRef.current = null;
+                    if (!voiceAutoModeRef.current || voiceManualPausedRef.current) return;
+                    if (sendingRef.current || loadingRef.current || voiceGenerationLockRef.current || voiceHardPausedForGenerationRef.current || aiSpeechActiveRef.current) return;
+                    if (window.speechSynthesis && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) {
+                        scheduleVoiceRestart(900);
+                        return;
+                    }
+                    startListeningInternal();
+                }, delayMs);
             };
 
             const startListening = () => {
                 if (voiceAutoModeRef.current) {
+                    voiceManualPausedRef.current = true;
                     voiceAutoModeRef.current = false;
                     setVoiceAutoMode(false);
                     pauseListeningOnly();
                     return;
                 }
 
+                voiceManualPausedRef.current = false;
+                voiceGenerationLockRef.current = false;
+                voiceHardPausedForGenerationRef.current = false;
                 voiceAutoModeRef.current = true;
                 setVoiceAutoMode(true);
-                startListeningInternal();
+                ignoreRecognitionUntilRef.current = Date.now() + 250;
+                scheduleVoiceRestart(260);
             };
 
             const handleFileChange = async (e) => {
@@ -2506,12 +2623,21 @@ class OpenAI {
                 const latestIdToken = idTokenRef.current;
                 const latestPersonalMemoryEnabled = personalMemoryEnabledRef.current;
 
-                if (sendingRef.current || loading || (!String(currentInput || "").trim() && latestStagedImages.length === 0)) return;
-                sendingRef.current = true;
+                if (sendingRef.current || loadingRef.current || (!String(currentInput || "").trim() && latestStagedImages.length === 0)) return;
 
-                // v33：語音模式送出後先暫停錄音，避免把 AI 回答或環境音再次送出。
+                const sendKey = `${String(currentInput || "").trim()}|${latestStagedImages.map(img => img.data || "").join(",").slice(0, 80)}`;
+                const sendNow = Date.now();
+                if (lastRequestKeyRef.current.key === sendKey && sendNow - lastRequestKeyRef.current.at < 12000) return;
+                lastRequestKeyRef.current = { key: sendKey, at: sendNow };
+
+                sendingRef.current = true;
+                let shouldResumeVoiceAfterResponse = false;
+
+                // v36：語音送出後立即強制中止所有錄音機制，整個生成與瀏覽器 TTS 期間都不准重啟。
                 if (options.fromVoice || voiceAutoModeRef.current) {
-                    pauseListeningOnly();
+                    voiceGenerationLockRef.current = true;
+                    voiceHardPausedForGenerationRef.current = true;
+                    forceStopAllRecognition(120000);
                 }
 
                 const text = String(currentInput || "").trim() || "請協助分析這些藥物相關圖片。";
@@ -2539,6 +2665,16 @@ class OpenAI {
                 const shouldShowImageAnimation = false;
                 setImageGenerating(false);
                 setLoading(true);
+                if (sendSafetyTimerRef.current) clearTimeout(sendSafetyTimerRef.current);
+                sendSafetyTimerRef.current = setTimeout(() => {
+                    // 防止網路/API 沒有回來時三點動畫無限卡住。
+                    sendingRef.current = false;
+                    loadingRef.current = false;
+                    setLoading(false);
+                    setImageGenerating(false);
+                    voiceGenerationLockRef.current = false;
+                    voiceHardPausedForGenerationRef.current = false;
+                }, 90000);
 
                 try {
                     const systemPrompt = `你是一位名叫 Cora 的專業且親切的藥劑師助手，回答要自然、簡潔、像真人藥師聊天。請以 JSON 格式回傳：{"answer": "口語解釋", "ingredients": [], "indications": [], "side_effects": [], "warnings": [], "reference_image_query": "搜尋關鍵字"}。使用繁體中文。`;
@@ -2629,24 +2765,39 @@ class OpenAI {
                         geminiChatId: response.chatId || latestGeminiChatId || ""
                     }, finalChatId !== activeId ? activeId : null);
                     notifyReply();
+                    voiceLastAssistantTextRef.current = String(info.answer || "");
                     await speakLocal(info.answer);
-                    if (voiceAutoModeRef.current) {
-                        setTimeout(startListeningInternal, 260);
-                    }
+                    shouldResumeVoiceAfterResponse = !!voiceAutoModeRef.current;
                 } catch (err) {
                     console.error(err);
                     setIsTalking(false);
                     const errorText = "抱歉，可能因為網路不穩定或 API 暫時中斷，這次訊息沒有成功生成。請確認網路後再試一次。";
                     setMessages(prev => [...prev, { id: Date.now().toString(), role: "assistant", content: errorText }]);
                     notifyReply();
+                    voiceLastAssistantTextRef.current = errorText;
                     await speakLocal(errorText);
-                    if (voiceAutoModeRef.current) {
-                        setTimeout(startListeningInternal, 260);
-                    }
+                    shouldResumeVoiceAfterResponse = !!voiceAutoModeRef.current;
                 } finally {
+                    if (sendSafetyTimerRef.current) {
+                        clearTimeout(sendSafetyTimerRef.current);
+                        sendSafetyTimerRef.current = null;
+                    }
                     setLoading(false);
                     setImageGenerating(false);
                     sendingRef.current = false;
+                    loadingRef.current = false;
+
+                    // 朗讀結束後仍保留冷卻時間，避免麥克風吃到 AI 尾音或系統回音後自動送出第二則。
+                    voiceLastAiFinishedAtRef.current = Date.now();
+                    ignoreRecognitionUntilRef.current = Date.now() + voiceResumeCooldownMsRef.current;
+
+                    setTimeout(() => {
+                        voiceGenerationLockRef.current = false;
+                        voiceHardPausedForGenerationRef.current = false;
+                        if (shouldResumeVoiceAfterResponse && voiceAutoModeRef.current && !voiceManualPausedRef.current) {
+                            scheduleVoiceRestart(600);
+                        }
+                    }, voiceResumeCooldownMsRef.current);
                 }
             };
 
