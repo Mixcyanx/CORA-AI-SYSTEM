@@ -1795,6 +1795,8 @@ class OpenAI {
             const ttsAudioRef = useRef(null);
             const speechUtteranceRef = useRef(null);
             const speechKeepAliveTimerRef = useRef(null);
+            const ttsUnlockedRef = useRef(false);
+            const ttsSessionIdRef = useRef(0);
             const fileInputRef = useRef(null);
             const cameraInputRef = useRef(null);
             const recognitionRef = useRef(null);
@@ -1970,6 +1972,38 @@ class OpenAI {
                         window.speechSynthesis.getVoices();
                     };
                 }
+            }, []);
+
+            useEffect(() => {
+                // v39：iPhone / Android 有些瀏覽器會要求 TTS 先經過使用者手勢解鎖。
+                // 使用者第一次點擊頁面、按麥克風、送出或觸控時，先播放極短靜音 utterance 讓 speechSynthesis 進入可用狀態。
+                const unlockBrowserTTS = () => {
+                    if (ttsUnlockedRef.current || !('speechSynthesis' in window)) return;
+                    try {
+                        const u = new SpeechSynthesisUtterance(' ');
+                        u.lang = 'zh-TW';
+                        u.volume = 0.01;
+                        u.rate = 1;
+                        u.pitch = 1;
+                        ttsUnlockedRef.current = true;
+                        window.speechSynthesis.cancel();
+                        window.speechSynthesis.resume();
+                        window.speechSynthesis.speak(u);
+                        setTimeout(() => {
+                            try { window.speechSynthesis.resume(); } catch {}
+                        }, 120);
+                    } catch {
+                        ttsUnlockedRef.current = false;
+                    }
+                };
+                window.addEventListener('pointerdown', unlockBrowserTTS, { passive: true });
+                window.addEventListener('touchstart', unlockBrowserTTS, { passive: true });
+                window.addEventListener('click', unlockBrowserTTS, { passive: true });
+                return () => {
+                    window.removeEventListener('pointerdown', unlockBrowserTTS);
+                    window.removeEventListener('touchstart', unlockBrowserTTS);
+                    window.removeEventListener('click', unlockBrowserTTS);
+                };
             }, []);
 
             useEffect(() => {
@@ -2416,24 +2450,13 @@ class OpenAI {
 
                 const getVoicesReady = async () => {
                     if (!window.speechSynthesis) return [];
-                    let voices = window.speechSynthesis.getVoices() || [];
-                    if (voices.length) return voices;
-                    await new Promise(resolve => {
-                        let finished = false;
-                        const done = () => {
-                            if (finished) return;
-                            finished = true;
-                            resolve();
-                        };
-                        const oldHandler = window.speechSynthesis.onvoiceschanged;
-                        window.speechSynthesis.onvoiceschanged = (...args) => {
-                            try { oldHandler?.(...args); } catch {}
-                            done();
-                        };
-                        setTimeout(done, 900);
-                    });
-                    voices = window.speechSynthesis.getVoices() || [];
-                    return voices;
+                    for (let i = 0; i < 18; i++) {
+                        try { window.speechSynthesis.resume(); } catch {}
+                        const voices = window.speechSynthesis.getVoices() || [];
+                        if (voices.length) return voices;
+                        await wait(180);
+                    }
+                    return window.speechSynthesis.getVoices() || [];
                 };
 
                 const pickVoice = (voices) => {
@@ -2446,75 +2469,88 @@ class OpenAI {
                 };
 
                 const speakOneChunk = async (chunk, preferredVoice) => {
-                    let attempt = 0;
+                    const synth = window.speechSynthesis;
+                    if (!synth || !chunk) return false;
 
-                    while (attempt < 3) {
-                        attempt++;
+                    for (let attempt = 1; attempt <= 5; attempt++) {
                         let started = false;
-                        let ended = false;
+                        let finished = false;
+                        let forceStartedTimer = null;
+                        let watchdog = null;
+                        let maxTimer = null;
 
-                        const result = await new Promise((resolve) => {
+                        const ok = await new Promise(async (resolve) => {
                             const utterance = new SpeechSynthesisUtterance(chunk);
                             speechUtteranceRef.current = utterance;
                             utterance.lang = preferredVoice?.lang || "zh-TW";
-                            utterance.rate = 1.02;
+                            utterance.rate = 1.0;
                             utterance.pitch = 1.03;
                             utterance.volume = 1;
                             if (preferredVoice) utterance.voice = preferredVoice;
 
-                            let watchdog = null;
-                            let maxTimer = null;
-
-                            const finish = (ok) => {
-                                if (ended) return;
-                                ended = true;
+                            const cleanup = () => {
+                                if (forceStartedTimer) clearTimeout(forceStartedTimer);
                                 if (watchdog) clearTimeout(watchdog);
                                 if (maxTimer) clearTimeout(maxTimer);
                                 stopSpeechKeepAlive();
-                                stopMouth();
-                                resolve({ ok, started });
                             };
 
-                            utterance.onstart = () => {
+                            const markStarted = () => {
+                                if (started) return;
                                 started = true;
                                 if (audioEnabled) startSynthMouth();
                             };
-                            utterance.onend = () => finish(true);
-                            utterance.onerror = () => finish(false);
 
-                            watchdog = setTimeout(() => {
-                                if (!started && !ended) {
-                                    try { window.speechSynthesis.resume(); } catch {}
-                                    finish(false);
-                                }
-                            }, attempt === 1 ? 1800 : 2600);
+                            const finish = (value) => {
+                                if (finished) return;
+                                finished = true;
+                                cleanup();
+                                stopMouth();
+                                resolve(value);
+                            };
 
-                            maxTimer = setTimeout(() => finish(started), Math.min(30000, Math.max(4500, chunk.length * 260)));
+                            utterance.onstart = () => markStarted();
+                            utterance.onboundary = () => markStarted();
+                            utterance.onend = () => finish(started || true);
+                            utterance.onerror = () => finish(started);
 
                             try {
+                                // 先清空舊佇列，再等待一小段時間，避免 Safari / Chrome WebView 吃掉第一句。
+                                try { synth.cancel(); } catch {}
+                                await wait(attempt === 1 ? 90 : 180);
+                                try { synth.resume(); } catch {}
+
                                 stopSpeechKeepAlive();
                                 speechKeepAliveTimerRef.current = setInterval(() => {
-                                    try { window.speechSynthesis.resume(); } catch {}
-                                }, 900);
+                                    try { synth.resume(); } catch {}
+                                }, 350);
 
-                                if (attempt > 1) {
-                                    try { window.speechSynthesis.cancel(); } catch {}
-                                }
-                                setTimeout(() => {
-                                    try {
-                                        window.speechSynthesis.resume();
-                                        window.speechSynthesis.speak(utterance);
-                                    } catch {
+                                synth.speak(utterance);
+                                try { synth.resume(); } catch {}
+
+                                // 某些瀏覽器不觸發 onstart，但實際已開始排程或播放，這裡強制讓嘴巴動畫同步。
+                                forceStartedTimer = setTimeout(() => {
+                                    if (!finished && (synth.speaking || synth.pending)) markStarted();
+                                }, 420);
+
+                                watchdog = setTimeout(() => {
+                                    if (!started && !finished) {
+                                        try { synth.resume(); } catch {}
                                         finish(false);
                                     }
-                                }, attempt === 1 ? 120 : 360);
+                                }, attempt <= 2 ? 1600 : 2400);
+
+                                maxTimer = setTimeout(() => {
+                                    finish(started || synth.speaking || synth.pending);
+                                }, Math.min(36000, Math.max(5500, chunk.length * 310)));
                             } catch {
                                 finish(false);
                             }
                         });
 
-                        if (result.ok || result.started) return true;
-                        await wait(260);
+                        if (ok) return true;
+                        try { synth.cancel(); } catch {}
+                        await wait(220 + attempt * 120);
                     }
 
                     return false;
@@ -2522,13 +2558,14 @@ class OpenAI {
 
                 try {
 
+                    const currentTtsSession = ++ttsSessionIdRef.current;
                     stopMouth();
                     stopSpeechKeepAlive();
                     if (voiceAutoModeRef.current) {
-                        forceStopAllRecognition(9000);
+                        forceStopAllRecognition(120000);
                     }
                     aiSpeechActiveRef.current = true;
-                    ignoreRecognitionUntilRef.current = Date.now() + 9000;
+                    ignoreRecognitionUntilRef.current = Date.now() + 120000;
 
                     try { window.speechSynthesis?.cancel(); } catch {}
 
@@ -2543,8 +2580,8 @@ class OpenAI {
                         return;
                     }
 
-                    // v38：一律使用瀏覽器內建 TTS，加入 voices 等待、分段朗讀與重試，降低 Avatar 偶發不說話。
-                    if (!('speechSynthesis' in window) || !audioEnabled) {
+                    // v39：一律使用瀏覽器內建 TTS，加入解鎖、voices 輪詢、分段朗讀、保活與多次重試。
+                    if (!('speechSynthesis' in window) || !audioEnabled || currentTtsSession !== ttsSessionIdRef.current) {
                         aiSpeechActiveRef.current = false;
                         ignoreRecognitionUntilRef.current = Date.now() + 2500;
                         return;
@@ -2561,7 +2598,7 @@ class OpenAI {
                     const preferredVoice = pickVoice(voices);
 
                     for (const chunk of chunks) {
-                        if (!audioEnabled) break;
+                        if (!audioEnabled || currentTtsSession !== ttsSessionIdRef.current) break;
                         const spoken = await speakOneChunk(chunk, preferredVoice);
                         if (!spoken) {
                             // 最後保底：即使瀏覽器阻擋 TTS，也不要讓嘴巴/語音狀態卡住。
@@ -2577,7 +2614,8 @@ class OpenAI {
                     stopSpeechKeepAlive();
                     try { window.speechSynthesis?.resume(); } catch {}
                     aiSpeechActiveRef.current = false;
-                    ignoreRecognitionUntilRef.current = Date.now() + 2500;
+                    // TTS 結束後仍保留短冷卻，避免麥克風吃到最後尾音；真正重啟由 handleSend finally 控制。
+                    ignoreRecognitionUntilRef.current = Date.now() + 1600;
                     stopMouth();
                 }
             };
@@ -2719,12 +2757,17 @@ class OpenAI {
                 lastRequestKeyRef.current = { key: sendKey, at: sendNow };
 
                 sendingRef.current = true;
-                let shouldResumeVoiceAfterResponse = false;
+                const wasVoiceAutoMode = !!voiceAutoModeRef.current;
+                let shouldResumeVoiceAfterResponse = !!(options.fromVoice || wasVoiceAutoMode);
 
-                // v36：語音送出後立即強制中止所有錄音機制，整個生成與瀏覽器 TTS 期間都不准重啟。
-                if (options.fromVoice || voiceAutoModeRef.current) {
+                // v39：語音送出後立即強制中止所有錄音機制；AI 生成與瀏覽器 TTS 期間都不准重啟，TTS 完成後才恢復。
+                if (options.fromVoice || wasVoiceAutoMode) {
+                    voiceManualPausedRef.current = false;
+                    voiceAutoModeRef.current = true;
+                    setVoiceAutoMode(true);
                     voiceGenerationLockRef.current = true;
                     voiceHardPausedForGenerationRef.current = true;
+                    voiceRecognitionSubmittingRef.current = true;
                     forceStopAllRecognition(120000);
                 }
 
@@ -2859,8 +2902,8 @@ class OpenAI {
                     setImageGenerating(false);
                     loadingRef.current = false;
                     await speakLocal(info.answer);
-                    // v38：AI 回覆完畢後不要再強制自動開啟麥克風；使用者要繼續語音時需自行按麥克風。
-                    shouldResumeVoiceAfterResponse = false;
+                    // v39：語音模式下，AI 朗讀完成後要自動恢復麥克風，形成無手對話。
+                    shouldResumeVoiceAfterResponse = shouldResumeVoiceAfterResponse && !voiceManualPausedRef.current;
                 } catch (err) {
                     console.error(err);
                     setIsTalking(false);
@@ -2872,8 +2915,8 @@ class OpenAI {
                     setImageGenerating(false);
                     loadingRef.current = false;
                     await speakLocal(errorText);
-                    // v38：錯誤回覆朗讀後也不要自動重新開啟麥克風。
-                    shouldResumeVoiceAfterResponse = false;
+                    // v39：錯誤提示朗讀後也維持語音模式，可繼續讓使用者補問。
+                    shouldResumeVoiceAfterResponse = shouldResumeVoiceAfterResponse && !voiceManualPausedRef.current;
                 } finally {
                     if (sendSafetyTimerRef.current) {
                         clearTimeout(sendSafetyTimerRef.current);
@@ -2893,12 +2936,17 @@ class OpenAI {
                         voiceGenerationLockRef.current = false;
                         voiceHardPausedForGenerationRef.current = false;
 
-                        // v38：不再自動 scheduleVoiceRestart。避免 AI 回覆後麥克風被強制打開，
-                        // 也避免 Safari/Android 把 TTS 尾音或環境聲誤判成下一則訊息。
-                        voiceAutoModeRef.current = false;
-                        voiceManualPausedRef.current = true;
-                        setVoiceAutoMode(false);
-                        setIsListening(false);
+                        if (shouldResumeVoiceAfterResponse && !voiceManualPausedRef.current) {
+                            voiceAutoModeRef.current = true;
+                            setVoiceAutoMode(true);
+                            // 先短暫冷卻，避免收進 TTS 尾音；冷卻後強制重開麥克風。
+                            ignoreRecognitionUntilRef.current = Date.now() + 1400;
+                            scheduleVoiceRestart(1500);
+                        } else {
+                            voiceAutoModeRef.current = false;
+                            setVoiceAutoMode(false);
+                            setIsListening(false);
+                        }
                     }, 900);
                 }
             };
