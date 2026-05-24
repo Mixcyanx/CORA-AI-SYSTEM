@@ -1680,7 +1680,7 @@ class OpenAI {
         const Character2D = ({ isTalking, audioEnabled }) => {
             const [blink, setBlink] = useState(false);
             const mouthActive = Boolean(isTalking) && audioEnabled;
-            const mouthMode = isTalking === "small" ? "small" : (isTalking === "open" || isTalking === true ? "open" : "rest");
+            const mouthMode = isTalking === "small" ? "small" : (isTalking === "o" ? "o" : (isTalking === "open" || isTalking === true ? "open" : "rest"));
 
             useEffect(() => {
                 const interval = setInterval(() => {
@@ -1694,6 +1694,7 @@ class OpenAI {
             const avatarEyeClose = "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Avatar_Eye_Close.png";
             const avatarMouthOpen = "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Avatar_Mouth_Open.png";
             const avatarMouthOpenSmall = "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Avatar_Mouth_Open_Small.png";
+            const avatarMouthO = "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Avatar_Mouth_O.png";
 
             return (
                 <div className="relative w-full h-full flex items-center justify-center overflow-hidden bg-[#F8F1E7] dark:bg-slate-900 rounded-3xl transition-colors duration-300">
@@ -1729,7 +1730,7 @@ class OpenAI {
                             {mouthActive && (
                                 <img
                                     key={`mouth-${mouthMode}`}
-                                    src={mouthMode === "small" ? avatarMouthOpenSmall : avatarMouthOpen}
+                                    src={mouthMode === "small" ? avatarMouthOpenSmall : (mouthMode === "o" ? avatarMouthO : avatarMouthOpen)}
                                     alt=""
                                     className="absolute inset-0 w-full h-full object-contain select-none pointer-events-none"
                                     style={{ opacity: 1 }}
@@ -2448,10 +2449,16 @@ class OpenAI {
                         if (isPause) {
                             setMouthInstant("rest");
                         } else {
+                            const useO = /[喔哦噢噯嗚烏無五午屋窩我握臥沃波播玻坡破婆摸魔莫膜佛服福復複付副負不部]/.test(ch);
                             const useSmall = /[的了是你我他她它這那個一以與及在有和或]/.test(ch) || /^[a-zA-Z0-9]$/.test(ch);
-                            const nextMode = mouthLastStateRef.current === "rest"
-                                ? (useSmall ? "small" : "open")
-                                : (mouthLastStateRef.current === "small" ? "open" : "small");
+                            let nextMode;
+                            if (useO) {
+                                nextMode = "o";
+                            } else if (mouthLastStateRef.current === "rest" || mouthLastStateRef.current === "o") {
+                                nextMode = useSmall ? "small" : "open";
+                            } else {
+                                nextMode = mouthLastStateRef.current === "small" ? "open" : "small";
+                            }
                             setMouthInstant(nextMode);
                         }
                         i++;
