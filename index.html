@@ -1679,7 +1679,8 @@ class OpenAI {
 
         const Character2D = ({ isTalking, audioEnabled }) => {
             const [blink, setBlink] = useState(false);
-            const mouthActive = isTalking && audioEnabled;
+            const mouthActive = Boolean(isTalking) && audioEnabled;
+            const mouthMode = isTalking === "small" ? "small" : (isTalking === "open" || isTalking === true ? "open" : "rest");
 
             useEffect(() => {
                 const interval = setInterval(() => {
@@ -1692,6 +1693,7 @@ class OpenAI {
             const avatarBase = "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Avatar.png";
             const avatarEyeClose = "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Avatar_Eye_Close.png";
             const avatarMouthOpen = "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Avatar_Mouth_Open.png";
+            const avatarMouthOpenSmall = "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Avatar_Mouth_Open_Small.png";
 
             return (
                 <div className="relative w-full h-full flex items-center justify-center overflow-hidden bg-[#F8F1E7] dark:bg-slate-900 rounded-3xl transition-colors duration-300">
@@ -1726,8 +1728,8 @@ class OpenAI {
 
                             {mouthActive && (
                                 <img
-                                    key="mouth-open"
-                                    src={avatarMouthOpen}
+                                    key={`mouth-${mouthMode}`}
+                                    src={mouthMode === "small" ? avatarMouthOpenSmall : avatarMouthOpen}
                                     alt=""
                                     className="absolute inset-0 w-full h-full object-contain select-none pointer-events-none"
                                     style={{ opacity: 1 }}
@@ -1790,7 +1792,7 @@ class OpenAI {
             const mouthAudioContextRef = useRef(null);
             const mouthAnalyserRef = useRef(null);
             const mouthDataRef = useRef(null);
-            const mouthLastStateRef = useRef(false);
+            const mouthLastStateRef = useRef("rest");
             const mouthEarlyStopRef = useRef(null);
             const ttsAudioRef = useRef(null);
             const speechUtteranceRef = useRef(null);
@@ -2396,15 +2398,17 @@ class OpenAI {
 
             const speakLocal = async (text) => {
 
-                const setMouthInstant = (open) => {
-                    if (mouthLastStateRef.current !== open) {
-                        mouthLastStateRef.current = open;
-                        setIsTalking(open);
+                const setMouthInstant = (mode) => {
+                    const nextMode = mode === true ? "open" : (mode || "rest");
+                    const nextValue = nextMode === "rest" ? false : nextMode;
+                    if (mouthLastStateRef.current !== nextMode) {
+                        mouthLastStateRef.current = nextMode;
+                        setIsTalking(nextValue);
                     }
                 };
 
                 const stopMouth = () => {
-                    setMouthInstant(false);
+                    setMouthInstant("rest");
 
                     if (mouthTimerRef.current) {
                         clearInterval(mouthTimerRef.current);
@@ -2442,15 +2446,19 @@ class OpenAI {
                         const ch = chars[i % Math.max(chars.length, 1)] || "";
                         const isPause = /[，。！？!?；;：:、,.]/.test(ch);
                         if (isPause) {
-                            setMouthInstant(false);
+                            setMouthInstant("rest");
                         } else {
-                            setMouthInstant(!mouthLastStateRef.current);
+                            const useSmall = /[的了是你我他她它這那個一以與及在有和或]/.test(ch) || /^[a-zA-Z0-9]$/.test(ch);
+                            const nextMode = mouthLastStateRef.current === "rest"
+                                ? (useSmall ? "small" : "open")
+                                : (mouthLastStateRef.current === "small" ? "open" : "small");
+                            setMouthInstant(nextMode);
                         }
                         i++;
                         const nextDelay = isPause ? 220 : (/^[a-zA-Z0-9]$/.test(ch) ? 82 : 108);
                         mouthTimerRef.current = setTimeout(tick, nextDelay);
                     };
-                    setMouthInstant(false);
+                    setMouthInstant("rest");
                     mouthTimerRef.current = setTimeout(tick, 55);
                 };
 
