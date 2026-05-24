@@ -2434,7 +2434,9 @@ class OpenAI {
                     }
                 };
 
-                // v41: 嘴巴只能在瀏覽器 TTS「真的開始播放」後才啟動，禁止 pending 階段先張嘴。
+                // v45: 桌機瀏覽器嘴巴時機修正。
+                // 不再讓嘴巴等 55ms 才第一次張開；TTS 確認開始後立刻跑第一個嘴型。
+                // Safari / 手機仍保留較保守的播放保護；桌機 Chrome/Edge 則避免「晚張嘴、早閉嘴」。
                 const startSynthMouth = (chunkText = "") => {
                     stopMouth();
                     const chars = Array.from(String(chunkText || "").replace(/\s+/g, ""));
@@ -2462,11 +2464,34 @@ class OpenAI {
                             setMouthInstant(nextMode);
                         }
                         i++;
-                        const nextDelay = isPause ? 220 : (/^[a-zA-Z0-9]$/.test(ch) ? 82 : 108);
+                        const nextDelay = isPause ? 180 : (/^[a-zA-Z0-9]$/.test(ch) ? 74 : 96);
                         mouthTimerRef.current = setTimeout(tick, nextDelay);
                     };
-                    setMouthInstant("rest");
-                    mouthTimerRef.current = setTimeout(tick, 55);
+                    tick();
+                };
+
+                // v44：最後一句結束時嘴巴關閉補償。
+                // 瀏覽器 TTS 的 onend 在 Safari/部分手機上有時會晚一點才觸發，
+                // 所以除了 onend 關嘴，也依文字長度預估尾段時間，接近句尾時先把嘴巴收回閉合。
+                const estimateSpeechDurationMs = (value) => {
+                    const chars = Array.from(String(value || ""));
+                    let ms = 280;
+                    for (const ch of chars) {
+                        if (/[，、,]/.test(ch)) ms += 170;
+                        else if (/[。！？!?；;：:]/.test(ch)) ms += 240;
+                        else if (/^[a-zA-Z0-9]$/.test(ch)) ms += 72;
+                        else if (/[一-鿿]/.test(ch)) ms += isSafariBrowser() ? 176 : 155;
+                        else ms += 105;
+                    }
+                    return Math.max(900, Math.min(30000, ms));
+                };
+
+                const forceCloseMouthNow = () => {
+                    stopMouth();
+                    setIsTalking(false);
+                    requestAnimationFrame(() => setIsTalking(false));
+                    setTimeout(() => setIsTalking(false), 40);
+                    setTimeout(() => setIsTalking(false), 120);
                 };
 
                 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -2475,6 +2500,15 @@ class OpenAI {
                     const ua = navigator.userAgent || "";
                     const vendor = navigator.vendor || "";
                     return /Safari/i.test(ua) && !/Chrome|CriOS|Chromium|Android|Edg/i.test(ua) && /Apple/i.test(vendor);
+                };
+
+                const isMobileLikeBrowser = () => {
+                    const ua = navigator.userAgent || "";
+                    return /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+                };
+
+                const isDesktopSpeechBrowser = () => {
+                    return !isSafariBrowser() && !isMobileLikeBrowser();
                 };
 
                 const cleanSpeechText = (value) => {
@@ -2537,6 +2571,7 @@ class OpenAI {
                         let forceStartedTimer = null;
                         let watchdog = null;
                         let maxTimer = null;
+                        let tailCloseTimer = null;
 
                         const ok = await new Promise(async (resolve) => {
                             const utterance = new SpeechSynthesisUtterance(chunk);
@@ -2553,33 +2588,51 @@ class OpenAI {
                                 if (forceStartedTimer) clearTimeout(forceStartedTimer);
                                 if (watchdog) clearTimeout(watchdog);
                                 if (maxTimer) clearTimeout(maxTimer);
+                                if (tailCloseTimer) clearTimeout(tailCloseTimer);
                                 stopSpeechKeepAlive();
                             };
 
                             const markStarted = () => {
                                 if (started || finished) return;
                                 started = true;
-                                // v41: 只在 TTS 實際開始事件後開嘴，並依目前 chunk 文字節奏跑嘴型。
+                                // v45: 桌機瀏覽器一開始就立刻張嘴，不做尾段預先閉嘴，避免晚張早閉。
                                 if (audioEnabled) startSynthMouth(chunk);
+                                // 只有 Safari / 手機瀏覽器才使用尾段保護；桌機交給 onend 精準關嘴。
+                                if (!isDesktopSpeechBrowser()) {
+                                    const closeAt = Math.max(520, estimateSpeechDurationMs(chunk) - (isSafariBrowser() ? 110 : 70));
+                                    tailCloseTimer = setTimeout(() => {
+                                        if (!finished && started) forceCloseMouthNow();
+                                    }, closeAt);
+                                }
                             };
 
                             const finish = (value) => {
                                 if (finished) return;
                                 finished = true;
                                 cleanup();
-                                stopMouth();
+                                forceCloseMouthNow();
                                 resolve(value);
                             };
 
                             utterance.onstart = () => markStarted();
-                            utterance.onboundary = () => markStarted();
+                            utterance.onboundary = (event) => {
+                                markStarted();
+                                // v45: 桌機 Chrome/Edge 的 boundary 可能早於實際聲音，不能用它提早閉嘴。
+                                // 只在 Safari / 手機上做最後字保護。
+                                if (!isDesktopSpeechBrowser()) {
+                                    const idx = Number(event?.charIndex ?? -1);
+                                    if (idx >= 0 && idx >= Math.max(0, String(chunk).length - 1)) {
+                                        forceCloseMouthNow();
+                                    }
+                                }
+                            };
                             utterance.onend = () => finish(started || (Date.now() - speakStartedAt > 500));
                             utterance.onerror = () => finish(false);
 
                             try {
                                 // 先清空舊佇列，再等待一小段時間，避免 Safari / Chrome WebView 吃掉第一句。
                                 try { synth.cancel(); } catch {}
-                                await wait(isSafariBrowser() ? (attempt === 1 ? 180 : 260) : (attempt === 1 ? 90 : 180));
+                                await wait(isSafariBrowser() ? (attempt === 1 ? 180 : 260) : (isDesktopSpeechBrowser() ? (attempt === 1 ? 20 : 80) : (attempt === 1 ? 90 : 180)));
                                 try { synth.resume(); } catch {}
 
                                 stopSpeechKeepAlive();
@@ -2593,8 +2646,11 @@ class OpenAI {
                                 // v41: 不再用 pending 當作開始朗讀，避免聲音還沒出來嘴巴已經先張開。
                                 // 只有確認 speaking 且不在 pending 佇列時，才作為 Safari 的後備啟動嘴型。
                                 forceStartedTimer = setTimeout(() => {
-                                    if (!finished && !started && synth.speaking && !synth.pending) markStarted();
-                                }, isSafariBrowser() ? 180 : 90);
+                                    if (!finished && !started) {
+                                        if (isDesktopSpeechBrowser()) markStarted();
+                                        else if (synth.speaking && !synth.pending) markStarted();
+                                    }
+                                }, isSafariBrowser() ? 180 : (isDesktopSpeechBrowser() ? 18 : 90));
 
                                 watchdog = setTimeout(() => {
                                     if (!started && !finished) {
@@ -2681,7 +2737,7 @@ class OpenAI {
                     aiSpeechActiveRef.current = false;
                     // v40：TTS 函式結束就允許 handleSend 立刻重開麥克風。
                     ignoreRecognitionUntilRef.current = Date.now();
-                    stopMouth();
+                    forceCloseMouthNow();
                 }
             };
 
