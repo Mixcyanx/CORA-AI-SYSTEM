@@ -1515,7 +1515,335 @@
             }
         }
 
-</style>
+
+
+        /* v46 tablet + desktop chrome lock:
+           Keep title/top controls and sidebar footer (logout / memory / legal links)
+           outside the scrollable area. Only chat and history lists should scroll. */
+        @media (min-width: 769px) {
+            html, body, #root {
+                width: 100% !important;
+                height: 100% !important;
+                min-height: 100% !important;
+                overflow: hidden !important;
+            }
+
+            body {
+                position: fixed !important;
+                inset: 0 !important;
+                overscroll-behavior: none !important;
+            }
+
+            .gpt-shell {
+                width: 100vw !important;
+                height: 100vh !important;
+                height: 100dvh !important;
+                min-height: 0 !important;
+                overflow: hidden !important;
+                display: flex !important;
+            }
+
+            .gpt-main {
+                height: 100vh !important;
+                height: 100dvh !important;
+                min-height: 0 !important;
+                overflow: hidden !important;
+                display: flex !important;
+                flex-direction: column !important;
+            }
+
+            .gpt-topbar {
+                flex: 0 0 56px !important;
+                height: 56px !important;
+                min-height: 56px !important;
+                max-height: 56px !important;
+                overflow: hidden !important;
+                position: relative !important;
+                top: auto !important;
+                z-index: 75000 !important;
+                background: var(--gpt-bg) !important;
+                border-bottom: 1px solid var(--gpt-border) !important;
+                transform: translateZ(0) !important;
+                -webkit-transform: translateZ(0) !important;
+            }
+
+            .gpt-topbar > * {
+                flex-shrink: 0 !important;
+            }
+
+            .gpt-chat {
+                flex: 1 1 auto !important;
+                min-height: 0 !important;
+                overflow-y: auto !important;
+                overflow-x: hidden !important;
+                overscroll-behavior: contain !important;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            .gpt-composer-wrap {
+                flex: 0 0 auto !important;
+                max-height: min(34vh, 260px) !important;
+                overflow-y: auto !important;
+                overflow-x: hidden !important;
+                z-index: 74000 !important;
+                background: var(--gpt-bg) !important;
+                border-top: 1px solid var(--gpt-border) !important;
+            }
+
+            .gpt-sidebar {
+                height: 100vh !important;
+                height: 100dvh !important;
+                min-height: 0 !important;
+                max-height: 100dvh !important;
+                overflow: hidden !important;
+                display: flex !important;
+                flex-direction: column !important;
+            }
+
+            .gpt-sidebar-top,
+            .gpt-sidebar > .gpt-new-chat,
+            .gpt-sidebar-footer {
+                flex: 0 0 auto !important;
+                min-height: 0 !important;
+            }
+
+            .gpt-history-list {
+                flex: 1 1 auto !important;
+                min-height: 0 !important;
+                overflow-y: auto !important;
+                overflow-x: hidden !important;
+                overscroll-behavior: contain !important;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            .gpt-sidebar-footer {
+                position: relative !important;
+                bottom: auto !important;
+                z-index: 75010 !important;
+                max-width: 100% !important;
+                max-height: 42vh !important;
+                overflow: hidden !important;
+                padding-bottom: max(8px, env(safe-area-inset-bottom)) !important;
+                background: var(--gpt-sidebar) !important;
+            }
+
+            .gpt-sidebar-footer * {
+                max-width: 100% !important;
+            }
+
+            .gpt-sidebar-footer .gpt-user-card,
+            .gpt-sidebar-footer .cora-legal-links,
+            .gpt-sidebar-footer .gpt-new-chat {
+                min-width: 0 !important;
+                overflow: hidden !important;
+            }
+
+            .gpt-sidebar-footer .truncate,
+            .gpt-sidebar-footer span {
+                min-width: 0 !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+            }
+        }
+
+        /* v46 iPad/tablet-specific: keep sidebar toggle in the topbar, not part of any scroll area. */
+        @media (min-width: 769px) and (max-width: 1180px) {
+            .gpt-topbar {
+                justify-content: flex-start !important;
+                gap: 10px !important;
+            }
+
+            .gpt-topbar > div:last-child {
+                margin-left: auto !important;
+                display: flex !important;
+                align-items: center !important;
+                gap: 6px !important;
+            }
+
+            .gpt-topbar .gpt-sidebar-toggle,
+            .gpt-sidebar-toggle,
+            .gpt-topbar .gpt-sidebar-toggle.sidebar-open,
+            .gpt-sidebar-toggle.sidebar-open,
+            .gpt-topbar .gpt-sidebar-toggle.sidebar-closed,
+            .gpt-sidebar-toggle.sidebar-closed {
+                position: relative !important;
+                top: auto !important;
+                left: auto !important;
+                right: auto !important;
+                width: 38px !important;
+                height: 38px !important;
+                flex: 0 0 38px !important;
+                transform: none !important;
+                z-index: 75020 !important;
+            }
+        }
+
+
+        /* v47 final sidebar toggle divider lock:
+           Tablet and desktop both keep the sidebar toggle on the LEFT side of the sidebar divider.
+           Only phone width keeps the button inside the topbar. */
+        @media (min-width: 769px) {
+            .gpt-shell { --cora-sidebar-width: 260px; --cora-sidebar-toggle-left: 214px; }
+
+            .gpt-topbar {
+                justify-content: space-between !important;
+            }
+
+            .gpt-topbar .gpt-sidebar-toggle,
+            .gpt-sidebar-toggle,
+            .gpt-topbar .gpt-sidebar-toggle.sidebar-open,
+            .gpt-sidebar-toggle.sidebar-open {
+                position: fixed !important;
+                top: 10px !important;
+                left: var(--cora-sidebar-toggle-left) !important;
+                right: auto !important;
+                bottom: auto !important;
+                width: 38px !important;
+                height: 38px !important;
+                min-width: 38px !important;
+                flex: 0 0 38px !important;
+                margin: 0 !important;
+                transform: none !important;
+                translate: none !important;
+                inset: auto auto auto var(--cora-sidebar-toggle-left) !important;
+                z-index: 90050 !important;
+                background: transparent !important;
+            }
+
+            .gpt-sidebar.desktop-collapsed + .gpt-main .gpt-sidebar-toggle,
+            .gpt-topbar .gpt-sidebar-toggle.sidebar-closed,
+            .gpt-sidebar-toggle.sidebar-closed {
+                position: fixed !important;
+                top: 10px !important;
+                left: 12px !important;
+                right: auto !important;
+                inset: auto auto auto 12px !important;
+                transform: none !important;
+                translate: none !important;
+                z-index: 90050 !important;
+            }
+
+            .gpt-sidebar-toggle:hover {
+                background: var(--gpt-surface-2) !important;
+            }
+        }
+
+        @media (min-width: 1024px) and (max-width: 1180px) {
+            .gpt-shell { --cora-sidebar-width: 240px; --cora-sidebar-toggle-left: 194px; }
+        }
+
+        @media (min-width: 769px) and (max-width: 1023px) {
+            .gpt-shell { --cora-sidebar-width: 260px; --cora-sidebar-toggle-left: 214px; }
+        }
+
+        @media (max-width: 768px) {
+            .gpt-topbar .gpt-sidebar-toggle,
+            .gpt-sidebar-toggle,
+            .gpt-topbar .gpt-sidebar-toggle.sidebar-open,
+            .gpt-sidebar-toggle.sidebar-open,
+            .gpt-topbar .gpt-sidebar-toggle.sidebar-closed,
+            .gpt-sidebar-toggle.sidebar-closed {
+                position: relative !important;
+                top: auto !important;
+                left: auto !important;
+                right: auto !important;
+                bottom: auto !important;
+                inset: auto !important;
+                width: 38px !important;
+                height: 38px !important;
+                min-width: 38px !important;
+                flex: 0 0 38px !important;
+                transform: none !important;
+                translate: none !important;
+                z-index: 70050 !important;
+            }
+        }
+
+
+        /* v48 hard fix: true viewport-locked sidebar toggle.
+           The previous rule was still affected by .gpt-topbar transform, so fixed positioning
+           became relative to the main/topbar area and looked like it was in the middle.
+           For tablet + desktop, remove that containing transform and pin the button to the
+           viewport x-coordinate just LEFT of the sidebar divider. */
+        @media (min-width: 769px) {
+            .gpt-topbar {
+                transform: none !important;
+                -webkit-transform: none !important;
+                overflow: visible !important;
+            }
+
+            .gpt-main,
+            .gpt-shell {
+                transform: none !important;
+                -webkit-transform: none !important;
+            }
+
+            .gpt-shell {
+                --cora-sidebar-open-width: 260px;
+                --cora-sidebar-toggle-x: calc(var(--cora-sidebar-open-width) - 46px);
+            }
+
+            .gpt-topbar .gpt-sidebar-toggle,
+            .gpt-sidebar-toggle,
+            .gpt-topbar .gpt-sidebar-toggle.sidebar-open,
+            .gpt-sidebar-toggle.sidebar-open {
+                position: fixed !important;
+                top: 10px !important;
+                left: var(--cora-sidebar-toggle-x) !important;
+                right: auto !important;
+                bottom: auto !important;
+                inset: auto auto auto var(--cora-sidebar-toggle-x) !important;
+                width: 38px !important;
+                height: 38px !important;
+                min-width: 38px !important;
+                max-width: 38px !important;
+                flex: 0 0 38px !important;
+                margin: 0 !important;
+                transform: none !important;
+                -webkit-transform: none !important;
+                translate: none !important;
+                z-index: 999999 !important;
+                pointer-events: auto !important;
+            }
+
+            .gpt-sidebar.desktop-collapsed + .gpt-main .gpt-sidebar-toggle,
+            .gpt-topbar .gpt-sidebar-toggle.sidebar-closed,
+            .gpt-sidebar-toggle.sidebar-closed {
+                position: fixed !important;
+                top: 10px !important;
+                left: 12px !important;
+                right: auto !important;
+                bottom: auto !important;
+                inset: auto auto auto 12px !important;
+                transform: none !important;
+                -webkit-transform: none !important;
+                translate: none !important;
+                z-index: 999999 !important;
+            }
+        }
+
+        @media (min-width: 1024px) and (max-width: 1180px) {
+            .gpt-shell {
+                --cora-sidebar-open-width: 240px;
+                --cora-sidebar-toggle-x: calc(var(--cora-sidebar-open-width) - 46px);
+            }
+        }
+
+        @media (min-width: 769px) and (max-width: 1023px) {
+            .gpt-shell {
+                --cora-sidebar-open-width: 260px;
+                --cora-sidebar-toggle-x: calc(var(--cora-sidebar-open-width) - 46px);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .gpt-topbar {
+                transform: none !important;
+                -webkit-transform: none !important;
+            }
+        }
+
+    </style>
 </head>
 <body class="transition-colors duration-300">
     <div id="root"></div>
