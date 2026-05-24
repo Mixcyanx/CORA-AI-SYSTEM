@@ -2429,11 +2429,29 @@ class OpenAI {
                     }
                 };
 
-                const startSynthMouth = () => {
+                // v41: 嘴巴只能在瀏覽器 TTS「真的開始播放」後才啟動，禁止 pending 階段先張嘴。
+                const startSynthMouth = (chunkText = "") => {
                     stopMouth();
-                    mouthTimerRef.current = setInterval(() => {
-                        setMouthInstant(!mouthLastStateRef.current);
-                    }, 90);
+                    const chars = Array.from(String(chunkText || "").replace(/\s+/g, ""));
+                    let i = 0;
+                    const tick = () => {
+                        if (!aiSpeechActiveRef.current || !audioEnabled) {
+                            stopMouth();
+                            return;
+                        }
+                        const ch = chars[i % Math.max(chars.length, 1)] || "";
+                        const isPause = /[，。！？!?；;：:、,.]/.test(ch);
+                        if (isPause) {
+                            setMouthInstant(false);
+                        } else {
+                            setMouthInstant(!mouthLastStateRef.current);
+                        }
+                        i++;
+                        const nextDelay = isPause ? 220 : (/^[a-zA-Z0-9]$/.test(ch) ? 82 : 108);
+                        mouthTimerRef.current = setTimeout(tick, nextDelay);
+                    };
+                    setMouthInstant(false);
+                    mouthTimerRef.current = setTimeout(tick, 55);
                 };
 
                 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -2524,9 +2542,10 @@ class OpenAI {
                             };
 
                             const markStarted = () => {
-                                if (started) return;
+                                if (started || finished) return;
                                 started = true;
-                                if (audioEnabled) startSynthMouth();
+                                // v41: 只在 TTS 實際開始事件後開嘴，並依目前 chunk 文字節奏跑嘴型。
+                                if (audioEnabled) startSynthMouth(chunk);
                             };
 
                             const finish = (value) => {
@@ -2556,21 +2575,22 @@ class OpenAI {
                                 synth.speak(utterance);
                                 try { synth.resume(); } catch {}
 
-                                // 某些瀏覽器不觸發 onstart，但實際已開始排程或播放，這裡強制讓嘴巴動畫同步。
+                                // v41: 不再用 pending 當作開始朗讀，避免聲音還沒出來嘴巴已經先張開。
+                                // 只有確認 speaking 且不在 pending 佇列時，才作為 Safari 的後備啟動嘴型。
                                 forceStartedTimer = setTimeout(() => {
-                                    if (!finished && (synth.speaking || synth.pending)) markStarted();
-                                }, 420);
+                                    if (!finished && !started && synth.speaking && !synth.pending) markStarted();
+                                }, isSafariBrowser() ? 180 : 90);
 
                                 watchdog = setTimeout(() => {
                                     if (!started && !finished) {
                                         try { synth.resume(); } catch {}
-                                        if (synth.speaking || synth.pending) markStarted();
+                                        if (synth.speaking && !synth.pending) markStarted();
                                         else finish(false);
                                     }
-                                }, isSafariBrowser() ? (attempt <= 3 ? 2200 : 3000) : (attempt <= 2 ? 1600 : 2400));
+                                }, isSafariBrowser() ? (attempt <= 3 ? 1800 : 2600) : (attempt <= 2 ? 1200 : 2000));
 
                                 maxTimer = setTimeout(() => {
-                                    finish(started || synth.speaking || synth.pending);
+                                    finish(started || synth.speaking);
                                 }, Math.min(36000, Math.max(5500, chunk.length * 310)));
                             } catch {
                                 finish(false);
