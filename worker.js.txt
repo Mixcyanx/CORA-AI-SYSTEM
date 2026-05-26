@@ -1,0 +1,1718 @@
+// ========================================
+// CORA AI Worker.js
+// ========================================
+
+export default {
+  async fetch(request) {
+
+    const GEMINIDATA_TOKEN = "Bearer GEMINIDATA Y 資料庫 TOKEN";
+    const CHATGPT_API = "https://free.v36.cm/v1/chat/completions";
+    const CHATGPT_TOKEN = "Bearer CHATGPT公益API TOKEN";
+
+    const FIREBASE_PROJECT_ID = "cora-ai-system";
+    const FIREBASE_WEB_API_KEY = "AIzaSyA-LX84ad-waxOOBsm3tXWJv_iWFtj8N34";
+
+    const MODEL = "gpt-4o-mini";
+
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization"
+    };
+
+    // ========================================
+    // OPTIONS
+    // ========================================
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        headers: corsHeaders
+      });
+    }
+
+    // ========================================
+    // GET
+    // ========================================
+    if (request.method === "GET") {
+
+      return jsonResponse({
+        status: "CORA Worker Running"
+      }, 200, corsHeaders);
+    }
+
+    try {
+
+      const body =
+        await request.json();
+
+      const action =
+        body.action || "ask";
+
+      const idToken =
+        getBearerToken(request);
+
+      // ========================================
+      // LIST CONVERSATIONS
+      // ========================================
+      if (action === "listConversations") {
+
+        const uid =
+          await verifyFirebaseUser(
+            idToken,
+            FIREBASE_WEB_API_KEY
+          );
+
+        const conversations =
+          await listConversations(
+            FIREBASE_PROJECT_ID,
+            idToken,
+            uid
+          );
+
+        return jsonResponse({
+          conversations
+        }, 200, corsHeaders);
+      }
+
+      // ========================================
+      // LOAD CONVERSATION
+      // ========================================
+      if (action === "loadConversation") {
+
+        const uid =
+          await verifyFirebaseUser(
+            idToken,
+            FIREBASE_WEB_API_KEY
+          );
+
+        const conversation =
+          await loadConversation(
+            FIREBASE_PROJECT_ID,
+            idToken,
+            uid,
+            body.conversationId
+          );
+
+        return jsonResponse({
+          conversation
+        }, 200, corsHeaders);
+      }
+
+      // ========================================
+      // DELETE CONVERSATION
+      // ========================================
+      if (action === "deleteConversation") {
+
+        const uid =
+          await verifyFirebaseUser(
+            idToken,
+            FIREBASE_WEB_API_KEY
+          );
+
+        await deleteConversation(
+          FIREBASE_PROJECT_ID,
+          idToken,
+          uid,
+          body.conversationId
+        );
+
+        return jsonResponse({
+          success: true,
+          conversationId:
+            body.conversationId
+        }, 200, corsHeaders);
+      }
+
+      // ========================================
+      // SYNC CONVERSATION
+      // ========================================
+      if (action === "syncConversation") {
+
+        const uid =
+          await verifyFirebaseUser(
+            idToken,
+            FIREBASE_WEB_API_KEY
+          );
+
+        const source =
+          body.conversation || {};
+
+        const saveResult =
+          await saveConversation(
+            FIREBASE_PROJECT_ID,
+            idToken,
+            uid,
+            {
+              id: source.id,
+              title: cleanTitle(source.title || "新的對話"),
+              messages: dedupeMessages(source.messages || []),
+              chatMemory: source.chatMemory || [],
+              medicationInfo: source.medicationInfo || {},
+              geminiChatId: source.geminiChatId || ""
+            }
+          );
+
+        return jsonResponse({
+          success: true,
+          conversationId: saveResult.conversationId
+        }, 200, corsHeaders);
+      }
+
+      // ========================================
+      // TOUCH CONVERSATION
+      // ========================================
+      if (action === "touchConversation") {
+
+        const uid =
+          await verifyFirebaseUser(
+            idToken,
+            FIREBASE_WEB_API_KEY
+          );
+
+        await touchConversation(
+          FIREBASE_PROJECT_ID,
+          idToken,
+          uid,
+          body.conversationId
+        );
+
+        return jsonResponse({
+          success: true,
+          conversationId:
+            body.conversationId
+        }, 200, corsHeaders);
+      }
+
+      // ========================================
+      // TTS
+      // ========================================
+      if (action === "tts") {
+
+        // 已停用外部 AI TTS：前端一律使用瀏覽器 speechSynthesis。
+        // 保留此 action 並回傳 200，避免舊版前端誤呼叫時造成紅色 501 錯誤。
+        return jsonResponse({
+          success: true,
+          browserTTS: true,
+          message: "外部 AI TTS 已停用，請使用瀏覽器 TTS。"
+        }, 200, corsHeaders);
+      }
+
+      // ========================================
+      // ASK
+      // ========================================
+      if (action !== "ask") {
+
+        return jsonResponse({
+          error: "未知 action"
+        }, 400, corsHeaders);
+      }
+
+      const userQuestion =
+        String(body.question || "").trim();
+
+      const requestKind =
+        detectRequestKind(userQuestion);
+
+      let isDrugRelatedRequest =
+        requestKind === "drug" ||
+        requestKind === "image_analysis";
+
+      let generatedImages = [];
+      let directToolAnswer = "";
+
+      if (requestKind === "time") {
+
+        directToolAnswer =
+          getTaipeiTimeAnswer(userQuestion);
+      }
+
+      const personalMemoryEnabled =
+        body.personalMemoryEnabled !== false;
+
+      const history =
+        personalMemoryEnabled && Array.isArray(body.history)
+          ? body.history.slice(-12)
+          : [];
+
+      // 將本聊天室最近記憶轉成文字，供 GeminiData / ChatGPT prompt 使用。
+      // 這段必須在任何 prompt template 之前宣告，否則 Worker 會因 historyText is not defined 回傳 500。
+      const historyText =
+        history
+          .map(item => {
+            const role =
+              item.role === "user"
+                ? "使用者"
+                : "CORA";
+
+            const content =
+              typeof item.content === "string"
+                ? item.content
+                : JSON.stringify(item.content || "");
+
+            return `${role}：${content}`;
+          })
+          .join("\n");
+
+      const images =
+        Array.isArray(body.images)
+          ? body.images
+          : [];
+
+      if (images.length > 0 && requestKind !== "image_generation") {
+        isDrugRelatedRequest = true;
+      }
+
+      const fullMessages =
+        Array.isArray(body.messages)
+          ? body.messages
+          : [];
+
+      let chatId =
+        body.chatId || null;
+
+      let uid = null;
+
+      // ========================================
+      // FIREBASE LOGIN
+      // ========================================
+      if (idToken) {
+
+        try {
+
+          uid =
+            await verifyFirebaseUser(
+              idToken,
+              FIREBASE_WEB_API_KEY
+            );
+
+        } catch {
+
+          uid = null;
+        }
+      }
+
+      // ========================================
+      // GLOBAL PERSONAL MEMORY
+      // ========================================
+      let globalMemoryContext = "";
+
+      if (uid && idToken && personalMemoryEnabled) {
+
+        globalMemoryContext =
+          await getPersonalMemoryContext(
+            FIREBASE_PROJECT_ID,
+            idToken,
+            uid,
+            body.conversationId
+          );
+      }
+
+      // ========================================
+      // IMAGE ANALYSIS
+      // ========================================
+      let imageAnalysis = "";
+
+      if (images.length > 0) {
+
+        imageAnalysis =
+          await analyzeImagesWithVision(
+            images,
+            CHATGPT_API,
+            CHATGPT_TOKEN,
+            MODEL
+          );
+      }
+
+      // ========================================
+      // OPTIONAL IMAGE GENERATION
+      // ========================================
+      if (requestKind === "image_generation") {
+
+        const imageResult =
+          await generateImagesWithChatGPT(
+            userQuestion,
+            CHATGPT_API,
+            CHATGPT_TOKEN
+          );
+
+        generatedImages =
+          imageResult.images || [];
+
+        directToolAnswer =
+          generatedImages.length
+            ? "圖片已生成完成。你可以直接查看下方圖片；如果想調整風格、比例或文字，我也可以繼續幫你改提示詞。"
+            : imageResult.message || "目前圖片生成服務沒有回傳圖片，請稍後再試，或改用文字描述讓我先幫你整理提示詞。";
+      }
+
+      // ========================================
+      // CREATE GEMINIDATA CHAT + QUERY
+      // 只有藥物/圖片辨識問題才查 GeminiData，其他一般問題直接交給 ChatGPT/工具處理。
+      // ========================================
+      let graphSummary =
+        directToolAnswer || "目前沒有查詢結果";
+
+      let graphHasUsefulData = false;
+
+      if (isDrugRelatedRequest) {
+
+        try {
+
+          if (!chatId) {
+
+            const createRes =
+              await fetch(
+                "https://cloud.geminidata.com/api/v1/chat/create",
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type":
+                      "application/json",
+
+                    "Authorization":
+                      GEMINIDATA_TOKEN
+                  },
+                  body: JSON.stringify({
+                    title: "CORA AI"
+                  })
+                }
+              );
+
+            const createData =
+              await safeJson(createRes);
+
+            chatId =
+              createData.chat_id ||
+              createData.id ||
+              createData.insertedId;
+          }
+
+          if (chatId) {
+
+            const graphPrompt = `
+你是 CORA AI 的 Graph RAG 查詢助手。
+
+請根據 GeminiData Knowledge Graph 自動查詢資料。
+
+如果有圖片分析結果，
+請優先根據圖片中的：
+- 藥名
+- 包裝文字
+- 成分
+- 外觀特徵
+
+查詢資料庫。
+
+如果使用者說：
+- 它
+- 那個藥
+- 這個
+
+請根據最近聊天推測藥名。
+
+最近對話：
+${historyText || "無"}
+
+跨聊天室個人記憶：
+${globalMemoryContext || "無"}
+
+圖片分析結果：
+${imageAnalysis || "無圖片"}
+
+使用者問題：
+${userQuestion}
+`;
+
+            const askRes =
+              await fetch(
+                `https://cloud.geminidata.com/api/v1/chat/${chatId}`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type":
+                      "application/json",
+
+                    "Authorization":
+                      GEMINIDATA_TOKEN
+                  },
+                  body: JSON.stringify({
+                    q: graphPrompt,
+                    message: graphPrompt,
+                    streaming: false
+                  })
+                }
+              );
+
+            const rawText =
+              await askRes.text();
+
+            const graphData =
+              parseGeminiDataResponse(rawText);
+
+            graphSummary =
+              graphData.result ||
+              graphData.response ||
+              graphData.answer ||
+              graphData.message ||
+              graphData.raw ||
+              "目前沒有查詢結果";
+
+            graphHasUsefulData =
+              hasUsefulGeminiData(
+                graphSummary,
+                rawText
+              );
+          }
+
+        } catch (err) {
+
+          graphSummary =
+            "GeminiData 查詢暫時失敗，改由 ChatGPT 接管回答。";
+
+          graphHasUsefulData = false;
+        }
+      }
+
+      // ========================================
+      // FINAL PROMPT
+      // ========================================
+      const finalPrompt = `
+你是 CORA AI 智慧藥物助手。
+
+請像真人藥師自然聊天。
+
+個人記憶模式：${personalMemoryEnabled ? "開啟，允許根據最近對話與跨聊天室個人記憶維持上下文。" : "關閉，不要使用過去對話做個人化推論。"}
+請支援一般 ChatGPT 問答、現在時間、摘要、翻譯、程式、創意發想、圖片生成請求等。非藥物問題不要硬套藥物卡片。
+
+請只回傳合法 JSON。
+
+{
+  "answer":"自然聊天回答",
+  "title":"聊天室標題",
+  "drugCard":{
+    "ingredients":["主要成分"],
+    "indications":["適應症"],
+    "side_effects":["常見副作用"],
+    "warnings":["禁忌與注意事項"],
+    "reference_image_query":"圖片搜尋關鍵字",
+    "image_exploration":[
+      "藥品外觀搜尋",
+      "藥盒搜尋",
+      "英文商品名搜尋"
+    ]
+  }
+}
+
+規則：
+1.answer 只放聊天內容，不要放 JSON 以外的文字。
+2.title 必須是聊天室重點，盡量短。
+3.主要使用者是繁體中文，所以預設使用繁體中文回答。
+4.如果使用者明確要求英文、日文、韓文、簡體中文或其他語言，請改用使用者指定語言回答。
+5.如果 GeminiData 有可用資料，請優先根據 GeminiData Knowledge Graph 回答。
+6.如果 GeminiData 找不到資料、資料為空、資料不相關或只有錯誤訊息，請由 ChatGPT 根據一般知識、藥學知識與安全原則接管回答。
+6-1.如果「工具結果」有內容，例如目前時間或圖片生成狀態，請優先引用工具結果自然回答。
+7.如果資料不足，請清楚提醒使用者「建議確認藥袋、藥盒或詢問藥師/醫師」，不要假裝資料庫有查到。
+8.涉及劑量、孕婦、兒童、慢性病、交互作用、過敏或嚴重副作用時，一定要提醒使用者諮詢醫師或藥師。
+9.drugCard 不確定的欄位請用空陣列 []，不要亂填。
+10.如果問題不是藥物問題，也可以自然對話，但仍維持 CORA AI 的友善專業語氣。
+
+最近對話：
+${historyText || "無"}
+
+跨聊天室個人記憶：
+${globalMemoryContext || "無"}
+
+工具結果：
+${directToolAnswer || "無"}
+
+使用者問題：
+${userQuestion}
+
+圖片分析結果：
+${imageAnalysis || "無圖片"}
+
+GeminiData資料狀態：
+${graphHasUsefulData ? "GeminiData 有可用資料，請優先依據資料回答。" : "GeminiData 找不到可用資料，請由 ChatGPT 接管回答，但要清楚說明資料可能需要藥師/醫師確認。"}
+
+GeminiData資料：
+${graphHasUsefulData ? graphSummary : "NO_USEFUL_GRAPH_DATA"}
+`;
+
+      // ========================================
+      // CHATGPT
+      // ========================================
+      const llmRes =
+        await fetch(
+          CHATGPT_API,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+
+              "Authorization":
+                CHATGPT_TOKEN
+            },
+            body: JSON.stringify({
+              model: MODEL,
+              messages: [
+                {
+                  role: "system",
+                  content:
+                    "你是 CORA AI 智慧助手。預設使用繁體中文，但必須支援使用者指定的任何語言。藥物問題有 GeminiData Knowledge Graph 資料時優先使用；沒有可用資料或不是藥物問題時，由 ChatGPT 根據一般知識、工具結果與安全原則回答。"
+                },
+                {
+                  role: "user",
+                  content:
+                    finalPrompt
+                }
+              ],
+              temperature: 0.35
+            })
+          }
+        );
+
+      const llmData =
+        await safeJson(llmRes);
+
+      const rawAnswer =
+        llmData?.choices?.[0]?.message?.content || "";
+
+      const parsed =
+        parseJsonFromLLM(rawAnswer);
+
+      const answer =
+        parsed.answer ||
+        directToolAnswer ||
+        (
+          graphHasUsefulData
+            ? graphSummary
+            : "目前 GeminiData Knowledge Graph 沒有找到可用資料，我可以先依一般藥學知識協助說明；若涉及實際用藥、劑量或交互作用，請再確認藥袋、藥盒或詢問藥師/醫師。"
+        );
+
+      const title =
+        cleanTitle(
+          parsed.title ||
+          userQuestion
+        );
+
+      const drugCard =
+        normalizeDrugCard(
+          parsed.drugCard
+        );
+
+      let conversationId =
+        body.conversationId || null;
+
+      // ========================================
+      // SAVE FIREBASE
+      // ========================================
+      if (uid && idToken) {
+
+        const assistantMessage = {
+          id: `a-${Date.now()}`,
+          role: "assistant",
+          content: answer,
+          images: generatedImages
+        };
+
+        let nextMessages =
+          fullMessages.length
+            ? [
+                ...fullMessages,
+                assistantMessage
+              ]
+            : [
+                ...history,
+                {
+                  id: `u-${Date.now()}`,
+                  role: "user",
+                  content: userQuestion,
+                  images
+                },
+                assistantMessage
+              ];
+
+        nextMessages =
+          dedupeMessages(nextMessages);
+
+        const chatMemory =
+          nextMessages
+            .filter(m =>
+              m.role === "user" ||
+              m.role === "assistant"
+            )
+            .map(m => ({
+              role: m.role,
+              content: m.content || ""
+            }))
+            .slice(-12);
+
+        const saveResult =
+          await saveConversation(
+            FIREBASE_PROJECT_ID,
+            idToken,
+            uid,
+            {
+              id: conversationId,
+              title,
+              messages: nextMessages,
+              chatMemory: personalMemoryEnabled ? chatMemory : [],
+              medicationInfo: {
+                answer,
+                ingredients:
+                  drugCard.ingredients,
+                indications:
+                  drugCard.indications,
+                side_effects:
+                  drugCard.side_effects,
+                warnings:
+                  drugCard.warnings,
+                reference_image_query:
+                  drugCard.reference_image_query,
+                image_exploration:
+                  drugCard.image_exploration
+              },
+              geminiChatId: chatId
+            }
+          );
+
+        conversationId =
+          saveResult.conversationId;
+      }
+
+      // ========================================
+      // RETURN
+      // ========================================
+      return jsonResponse({
+        response: answer,
+        result: answer,
+        title,
+        conversationTitle: title,
+        chatId,
+        conversationId,
+        drugCard,
+        graphSource: graphHasUsefulData
+          ? "geminidata"
+          : "chatgpt_fallback",
+        graphHasUsefulData,
+        geminiDataSummary: graphHasUsefulData
+          ? graphSummary
+          : "",
+        imageAnalysis,
+        images: generatedImages,
+        generatedImages,
+        requestKind,
+        imageExplore: {
+          mainQuery:
+            drugCard.reference_image_query,
+          suggestions:
+            drugCard.image_exploration
+        }
+      }, 200, corsHeaders);
+
+    } catch (err) {
+
+      return jsonResponse({
+        error: err.message,
+        response:
+          "抱歉，可能因為網路不穩定或 API 暫時中斷，這次訊息沒有成功生成。請稍後再試。"
+      }, 500, corsHeaders);
+    }
+  }
+};
+
+
+// ========================================
+// REQUEST KIND DETECTION
+// ========================================
+function detectRequestKind(question) {
+
+  const text =
+    String(question || "")
+      .trim()
+      .toLowerCase();
+
+  if (!text) {
+    return "general";
+  }
+
+  if (/(幾點|現在時間|目前時間|today'?s time|current time|what time|時間)/i.test(text)) {
+    return "time";
+  }
+
+  if (/(生成|產生|畫|做一張|設計|create|generate|draw|image|picture|logo|封面|去背|圖片)/i.test(text) &&
+      !/(分析|辨識|這張|這個藥|藥品|藥物資訊|成分)/i.test(text)) {
+    return "image_generation";
+  }
+
+  if (/(藥|藥品|藥物|用藥|副作用|成分|適應症|禁忌|劑量|膠囊|錠|錠劑|藥師|處方|medicine|drug|pill|tablet|capsule|side effect)/i.test(text)) {
+    return "drug";
+  }
+
+  return "general";
+}
+
+// ========================================
+// TAIPEI TIME TOOL
+// ========================================
+function getTaipeiTimeAnswer(question) {
+
+  const now = new Date();
+
+  const parts =
+    new Intl.DateTimeFormat("zh-TW", {
+      timeZone: "Asia/Taipei",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      weekday: "long",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false
+    }).format(now);
+
+  return `台灣時間現在是 ${parts}。`;
+}
+
+// ========================================
+// IMAGE GENERATION
+// ========================================
+async function generateImagesWithChatGPT(
+  prompt,
+  chatgptApi,
+  chatgptToken
+) {
+
+  try {
+
+    const imageApi =
+      String(chatgptApi)
+        .replace(/\/chat\/completions\/?$/, "/images/generations");
+
+    const res =
+      await fetch(imageApi, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": chatgptToken
+        },
+        body: JSON.stringify({
+          model: "gpt-image-1",
+          prompt: String(prompt || "").slice(0, 1800),
+          size: "1024x1024",
+          n: 1
+        })
+      });
+
+    const data =
+      await safeJson(res);
+
+    const images =
+      (data.data || [])
+        .map(item => {
+          if (item.url) return item.url;
+          if (item.b64_json) return `data:image/png;base64,${item.b64_json}`;
+          return "";
+        })
+        .filter(Boolean);
+
+    if (images.length) {
+      return { images };
+    }
+
+    return {
+      images: [],
+      message: data.error?.message || data.raw || "圖片 API 未回傳圖片。"
+    };
+
+  } catch (err) {
+
+    return {
+      images: [],
+      message: `圖片生成暫時失敗：${err.message}`
+    };
+  }
+}
+
+// ========================================
+// CROSS-CHAT PERSONAL MEMORY
+// ========================================
+async function getPersonalMemoryContext(
+  projectId,
+  idToken,
+  uid,
+  currentConversationId
+) {
+
+  try {
+
+    const conversations =
+      await listConversations(
+        projectId,
+        idToken,
+        uid
+      );
+
+    const recent =
+      conversations
+        .filter(chat => normalizeConversationId(chat.id) !== normalizeConversationId(currentConversationId))
+        .slice(0, 12);
+
+    const blocks = [];
+
+    for (const chat of recent) {
+
+      try {
+
+        const full =
+          await loadConversation(
+            projectId,
+            idToken,
+            uid,
+            chat.id
+          );
+
+        const memory =
+          Array.isArray(full.chatMemory) && full.chatMemory.length
+            ? full.chatMemory
+            : (Array.isArray(full.messages) ? full.messages : [])
+                .filter(m => m.role === "user" || m.role === "assistant")
+                .slice(-6)
+                .map(m => ({
+                  role: m.role,
+                  content: m.content || ""
+                }));
+
+        if (memory.length) {
+          blocks.push(
+            `【${full.title || chat.title || "未命名對話"}】\n` +
+            memory
+              .slice(-6)
+              .map(m => `${m.role === "user" ? "使用者" : "CORA"}：${String(m.content || "").slice(0, 240)}`)
+              .join("\n")
+          );
+        }
+
+      } catch {
+        // Ignore unreadable old conversations.
+      }
+    }
+
+    return blocks
+      .join("\n---\n")
+      .slice(0, 6000);
+
+  } catch {
+
+    return "";
+  }
+}
+
+// ========================================
+// CLEAN TITLE
+// ========================================
+function cleanTitle(title) {
+
+  return String(title || "新的對話")
+    .replace(/[\\n\\r"「」]/g, "")
+    .trim()
+    .slice(0, 18) || "新的對話";
+}
+
+// ========================================
+// DEDUPE
+// ========================================
+function dedupeMessages(messages) {
+
+  const seen =
+    new Set();
+
+  const result = [];
+
+  for (const msg of messages || []) {
+
+    const key =
+      `${msg.role}|${msg.content || ""}|${JSON.stringify(msg.images || [])}`;
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+
+    result.push(msg);
+  }
+
+  return result;
+}
+
+// ========================================
+// IMAGE ANALYSIS
+// ========================================
+async function analyzeImagesWithVision(
+  images,
+  chatgptApi,
+  chatgptToken,
+  model
+) {
+
+  try {
+
+    const limitedImages =
+      images.slice(0, 3);
+
+    const content = [
+      {
+        type: "text",
+        text:
+          "請分析藥品圖片。"
+      },
+
+      ...limitedImages.map(img => ({
+        type: "image_url",
+        image_url: {
+          url: img
+        }
+      }))
+    ];
+
+    const res =
+      await fetch(chatgptApi, {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/json",
+
+          "Authorization":
+            chatgptToken
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            {
+              role: "system",
+              content:
+                "你是藥品圖片辨識助手"
+            },
+            {
+              role: "user",
+              content
+            }
+          ]
+        })
+      });
+
+    const data =
+      await safeJson(res);
+
+    return (
+      data?.choices?.[0]?.message?.content ||
+      ""
+    );
+
+  } catch {
+
+    return "";
+  }
+}
+
+// ========================================
+// VERIFY FIREBASE
+// ========================================
+async function verifyFirebaseUser(
+  idToken,
+  apiKey
+) {
+
+  if (!idToken) {
+    throw new Error("尚未登入");
+  }
+
+  const res =
+    await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/json"
+        },
+        body: JSON.stringify({
+          idToken
+        })
+      }
+    );
+
+  const data =
+    await safeJson(res);
+
+  if (!data.users?.[0]) {
+
+    throw new Error(
+      "Firebase驗證失敗"
+    );
+  }
+
+  return data.users[0].localId;
+}
+
+// ========================================
+// FIRESTORE BASE
+// ========================================
+function firestoreBase(projectId) {
+
+  return `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents`;
+}
+
+// ========================================
+// NORMALIZE ID
+// ========================================
+function normalizeConversationId(id) {
+
+  const raw =
+    String(id || "").trim();
+
+  if (
+    !raw ||
+    raw.startsWith("local-")
+  ) {
+
+    return "";
+  }
+
+  return raw
+    .split("/")
+    .pop();
+}
+
+// ========================================
+// SAVE CONVERSATION
+// ========================================
+async function saveConversation(
+  projectId,
+  idToken,
+  uid,
+  conversation
+) {
+
+  const conversationId =
+    normalizeConversationId(
+      conversation.id
+    ) || crypto.randomUUID();
+
+  const payload = {
+    fields: {
+
+      title: {
+        stringValue:
+          conversation.title || "新對話"
+      },
+
+      messages: {
+        stringValue:
+          JSON.stringify(
+            dedupeMessages(
+              conversation.messages || []
+            )
+          )
+      },
+
+      chatMemory: {
+        stringValue:
+          JSON.stringify(
+            conversation.chatMemory || []
+          )
+      },
+
+      medicationInfo: {
+        stringValue:
+          JSON.stringify(
+            conversation.medicationInfo || {}
+          )
+      },
+
+      geminiChatId: {
+        stringValue:
+          conversation.geminiChatId || ""
+      },
+
+      messageCount: {
+        integerValue:
+          String(
+            (conversation.messages || []).length
+          )
+      },
+
+      updatedAt: {
+        timestampValue:
+          new Date().toISOString()
+      },
+
+      lastAccessedAt: {
+        timestampValue:
+          new Date().toISOString()
+      }
+    }
+  };
+
+  const url =
+    `${firestoreBase(projectId)}` +
+    `/users/${uid}/conversations/${conversationId}`;
+
+  const res =
+    await fetch(url, {
+      method: "PATCH",
+      headers: {
+        "Content-Type":
+          "application/json",
+
+        "Authorization":
+          `Bearer ${idToken}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+  const data =
+    await safeJson(res);
+
+  if (!res.ok) {
+
+    throw new Error(
+      data.error?.message ||
+      "儲存對話失敗"
+    );
+  }
+
+  return {
+    conversationId
+  };
+}
+
+// ========================================
+// DELETE CONVERSATION
+// ========================================
+async function deleteConversation(
+  projectId,
+  idToken,
+  uid,
+  conversationId
+) {
+
+  const cleanId =
+    normalizeConversationId(
+      conversationId
+    );
+
+  if (!cleanId) {
+
+    throw new Error(
+      "缺少 conversationId"
+    );
+  }
+
+  const url =
+    `${firestoreBase(projectId)}` +
+    `/users/${uid}/conversations/${cleanId}`;
+
+  const res =
+    await fetch(url, {
+      method: "DELETE",
+      headers: {
+        "Authorization":
+          `Bearer ${idToken}`
+      }
+    });
+
+  if (!res.ok) {
+
+    const data =
+      await safeJson(res);
+
+    throw new Error(
+      data.error?.message ||
+      "刪除對話失敗"
+    );
+  }
+
+  return true;
+}
+
+// ========================================
+// TOUCH CONVERSATION
+// ========================================
+async function touchConversation(
+  projectId,
+  idToken,
+  uid,
+  conversationId
+) {
+
+  const cleanId =
+    normalizeConversationId(
+      conversationId
+    );
+
+  if (!cleanId) {
+
+    throw new Error(
+      "缺少 conversationId"
+    );
+  }
+
+  const payload = {
+    fields: {
+      lastAccessedAt: {
+        timestampValue:
+          new Date().toISOString()
+      }
+    }
+  };
+
+  const url =
+    `${firestoreBase(projectId)}` +
+    `/users/${uid}/conversations/${cleanId}` +
+    `?updateMask.fieldPaths=lastAccessedAt`;
+
+  const res =
+    await fetch(url, {
+      method: "PATCH",
+      headers: {
+        "Content-Type":
+          "application/json",
+
+        "Authorization":
+          `Bearer ${idToken}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+  const data =
+    await safeJson(res);
+
+  if (!res.ok) {
+
+    throw new Error(
+      data.error?.message ||
+      "更新聊天室排序時間失敗"
+    );
+  }
+
+  return true;
+}
+
+// ========================================
+// LIST CONVERSATIONS
+// ========================================
+async function listConversations(
+  projectId,
+  idToken,
+  uid
+) {
+
+  const url =
+    `${firestoreBase(projectId)}` +
+    `/users/${uid}/conversations?pageSize=100`;
+
+  const res =
+    await fetch(url, {
+      headers: {
+        "Authorization":
+          `Bearer ${idToken}`
+      }
+    });
+
+  const data =
+    await safeJson(res);
+
+  const rows = (
+    data.documents || []
+  ).map(doc => {
+
+    const fields =
+      doc.fields || {};
+
+    return {
+      id:
+        doc.name.split("/").pop(),
+
+      title:
+        fields.title?.stringValue || "未命名",
+
+      messageCount:
+        Number(
+          fields.messageCount?.integerValue || 0
+        ),
+
+      geminiChatId:
+        fields.geminiChatId?.stringValue || "",
+
+      updatedAt:
+        fields.updatedAt?.timestampValue || "",
+
+      lastAccessedAt:
+        fields.lastAccessedAt?.timestampValue || "",
+
+      createdAt:
+        fields.createdAt?.timestampValue || ""
+    };
+  });
+
+  return dedupeConversations(rows)
+    .sort((a, b) =>
+      getConversationTime(b) -
+      getConversationTime(a)
+    );
+}
+
+// ========================================
+// DEDUPE CONVERSATIONS
+// ========================================
+function getConversationTime(chat) {
+
+  const raw =
+    chat?.lastAccessedAt ||
+    chat?.updatedAt ||
+    chat?.createdAt ||
+    0;
+
+  const parsed =
+    typeof raw === "number"
+      ? raw
+      : Date.parse(raw);
+
+  return Number.isFinite(parsed)
+    ? parsed
+    : 0;
+}
+
+function dedupeConversations(conversations) {
+
+  const map =
+    new Map();
+
+  for (const chat of conversations || []) {
+
+    const id =
+      normalizeConversationId(chat?.id);
+
+    if (!id) {
+      continue;
+    }
+
+    const normalized = {
+      ...chat,
+      id
+    };
+
+    const old =
+      map.get(id);
+
+    if (
+      !old ||
+      getConversationTime(normalized) >=
+        getConversationTime(old)
+    ) {
+      map.set(id, normalized);
+    }
+  }
+
+  return [...map.values()];
+}
+
+// ========================================
+// LOAD CONVERSATION
+// ========================================
+async function loadConversation(
+  projectId,
+  idToken,
+  uid,
+  conversationId
+) {
+
+  const cleanId =
+    normalizeConversationId(
+      conversationId
+    );
+
+  const url =
+    `${firestoreBase(projectId)}` +
+    `/users/${uid}/conversations/${cleanId}`;
+
+  const res =
+    await fetch(url, {
+      headers: {
+        "Authorization":
+          `Bearer ${idToken}`
+      }
+    });
+
+  const data =
+    await safeJson(res);
+
+  const fields =
+    data.fields || {};
+
+  return {
+    id: cleanId,
+
+    title:
+      fields.title?.stringValue || "",
+
+    messages:
+      JSON.parse(
+        fields.messages?.stringValue || "[]"
+      ),
+
+    chatMemory:
+      JSON.parse(
+        fields.chatMemory?.stringValue || "[]"
+      ),
+
+    medicationInfo:
+      JSON.parse(
+        fields.medicationInfo?.stringValue || "{}"
+      ),
+
+    geminiChatId:
+      fields.geminiChatId?.stringValue || ""
+  };
+}
+
+// ========================================
+// PARSE GEMINIDATA
+// ========================================
+function parseGeminiDataResponse(rawText) {
+
+  try {
+
+    return JSON.parse(rawText);
+
+  } catch {
+
+    return {
+      result: rawText
+    };
+  }
+}
+
+// ========================================
+// CHECK GEMINIDATA USEFUL DATA
+// ========================================
+function hasUsefulGeminiData(
+  graphSummary,
+  rawText
+) {
+
+  const text =
+    String(graphSummary || rawText || "")
+      .trim()
+      .toLowerCase();
+
+  if (!text) {
+    return false;
+  }
+
+  const emptySignals = [
+    "目前沒有查詢結果",
+    "沒有查詢結果",
+    "目前沒有找到",
+    "沒有找到",
+    "查無資料",
+    "找不到資料",
+    "找不到相關資料",
+    "無相關資料",
+    "沒有相關資料",
+    "暫無資料",
+    "資料庫暫無",
+    "no result",
+    "no results",
+    "not found",
+    "no data",
+    "no relevant",
+    "no useful",
+    "empty",
+    "null",
+    "undefined",
+    "error",
+    "failed",
+    "[]",
+    "{}"
+  ];
+
+  if (
+    emptySignals.some(signal =>
+      text === signal ||
+      text.includes(signal)
+    )
+  ) {
+    return false;
+  }
+
+  if (text.length < 12) {
+    return false;
+  }
+
+  return true;
+}
+
+// ========================================
+// PARSE JSON
+// ========================================
+function parseJsonFromLLM(text) {
+
+  try {
+
+    let clean =
+      String(text || "")
+        .replace(/```json/g, "")
+        .replace(/```/g, "")
+        .trim();
+
+    const firstBrace =
+      clean.indexOf("{");
+
+    const lastBrace =
+      clean.lastIndexOf("}");
+
+    if (
+      firstBrace >= 0 &&
+      lastBrace > firstBrace
+    ) {
+
+      clean =
+        clean.slice(
+          firstBrace,
+          lastBrace + 1
+        );
+    }
+
+    return JSON.parse(clean);
+
+  } catch {
+
+    return {
+      answer: text
+    };
+  }
+}
+
+// ========================================
+// NORMALIZE DRUG CARD
+// ========================================
+function normalizeDrugCard(card) {
+
+  const source =
+    card || {};
+
+  return {
+
+    ingredients:
+      toArray(source.ingredients),
+
+    indications:
+      toArray(source.indications),
+
+    side_effects:
+      toArray(
+        source.side_effects ||
+        source.sideEffects
+      ),
+
+    warnings:
+      toArray(source.warnings),
+
+    reference_image_query:
+      source.reference_image_query ||
+      "",
+
+    image_exploration:
+      toArray(
+        source.image_exploration
+      )
+  };
+}
+
+// ========================================
+// TO ARRAY
+// ========================================
+function toArray(value) {
+
+  if (!value) {
+
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+
+    return value
+      .map(v => String(v).trim())
+      .filter(Boolean);
+  }
+
+  return String(value)
+    .split(/\n|、|;|；|,/)
+    .map(v => v.trim())
+    .filter(Boolean);
+}
+
+// ========================================
+// SAFE JSON
+// ========================================
+async function safeJson(response) {
+
+  const text =
+    await response.text();
+
+  try {
+
+    return JSON.parse(text);
+
+  } catch {
+
+    return {
+      raw: text
+    };
+  }
+}
+
+// ========================================
+// JSON RESPONSE
+// ========================================
+function jsonResponse(
+  data,
+  status,
+  corsHeaders
+) {
+
+  return new Response(
+    JSON.stringify(data),
+    {
+      status,
+      headers: {
+        ...corsHeaders,
+        "Content-Type":
+          "application/json"
+      }
+    }
+  );
+}
+
+// ========================================
+// GET TOKEN
+// ========================================
+function getBearerToken(request) {
+
+  const auth =
+    request.headers.get(
+      "Authorization"
+    ) || "";
+
+  if (
+    auth.startsWith("Bearer ")
+  ) {
+
+    return auth.slice(7);
+  }
+
+  return null;
+}
