@@ -7,7 +7,22 @@
     <meta name="description" content="CORA AI 是 AI 藥師助手，可協助解說藥物成分、適應症與副作用，讓用藥更安心。">
     <meta name="application-name" content="CORA AI 藥物解說系統">
     <meta name="apple-mobile-web-app-title" content="CORA AI">
-    <meta name="theme-color" content="#0f766e">
+    <meta name="theme-color" content="#F5EFE6">
+    <meta name="color-scheme" content="light dark">
+    <script>
+        (function () {
+            try {
+                var theme = localStorage.getItem('theme') || 'light';
+                var isDark = theme === 'dark';
+                var root = document.documentElement;
+                if (isDark) root.classList.add('dark');
+                root.style.colorScheme = isDark ? 'dark' : 'light';
+                var color = isDark ? '#081425' : '#F5EFE6';
+                var meta = document.querySelector('meta[name="theme-color"]');
+                if (meta) meta.setAttribute('content', color);
+            } catch (e) {}
+        })();
+    </script>
     <meta name="robots" content="index, follow">
     <link rel="canonical" href="https://mixcyanx.github.io/CORA-AI-SYSTEM/">
 
@@ -2030,6 +2045,10 @@ class OpenAI {
             return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
         };
 
+        const isMobileOrTabletExperience = () => {
+            return window.innerWidth < 1024 || isMobileLikeDevice() || isIOSPlatform();
+        };
+
         const needsStrictTTSGesture = () => isIOSPlatform() || isMobileLikeDevice();
 
         const sanitizeUtteranceForMobile = (value) => {
@@ -2518,9 +2537,26 @@ class OpenAI {
 
             useEffect(() => {
                 const root = window.document.documentElement;
-                if (theme === 'dark') root.classList.add('dark');
+                const isDark = theme === 'dark';
+                if (isDark) root.classList.add('dark');
                 else root.classList.remove('dark');
                 localStorage.setItem('theme', theme);
+
+                const themeColor = isDark ? '#081425' : '#F5EFE6';
+                const themeMeta = document.querySelector('meta[name="theme-color"]');
+                if (themeMeta) {
+                    themeMeta.setAttribute('content', themeColor);
+                    themeMeta.content = themeColor;
+                }
+                root.style.colorScheme = isDark ? 'dark' : 'light';
+
+                let statusBarMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+                if (!statusBarMeta) {
+                    statusBarMeta = document.createElement('meta');
+                    statusBarMeta.setAttribute('name', 'apple-mobile-web-app-status-bar-style');
+                    document.head.appendChild(statusBarMeta);
+                }
+                statusBarMeta.setAttribute('content', isDark ? 'black-translucent' : 'default');
             }, [theme]);
 
             useEffect(() => {
@@ -3377,6 +3413,14 @@ class OpenAI {
                 const now = Date.now();
                 if (now - lastCharacterClickRef.current < 1800) return;
                 lastCharacterClickRef.current = now;
+                if (!audioEnabled) return;
+
+                unlockBrowserTTSIfNeeded({ force: needsStrictTTSGesture() });
+
+                if (isMobileOrTabletExperience()) {
+                    speakLocal(CORA_GREETING_TEXT);
+                    return;
+                }
 
                 if (greetingSpeakPendingRef.current && !greetingSpokenRef.current) {
                     playGreetingOnce({ finalize: true });
@@ -3384,10 +3428,7 @@ class OpenAI {
                 }
 
                 const line = CORA_FUN_QUOTES[Math.floor(Math.random() * CORA_FUN_QUOTES.length)];
-                if (audioEnabled) {
-                    unlockBrowserTTSIfNeeded({ force: needsStrictTTSGesture() });
-                    speakLocal(line);
-                }
+                speakLocal(line);
             };
 
             const notifyReply = () => {
