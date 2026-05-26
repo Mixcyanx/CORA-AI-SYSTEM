@@ -2023,14 +2023,48 @@ class OpenAI {
             }
         };
 
-        const getChatTime = (chat) => {
-            const raw = chat?.lastAccessedAt || chat?.updatedAt || chat?.modifiedAt || chat?.createdAt || chat?.timestamp || 0;
+        const inferLastUserMessageAt = (chat) => {
+            if (chat?.lastUserMessageAt) return chat.lastUserMessageAt;
+            const list = Array.isArray(chat?.messages) ? chat.messages : [];
+            let latest = 0;
+            for (const msg of list) {
+                if (msg?.role !== "user") continue;
+                if (!String(msg?.content || "").trim()) continue;
+                const parsed = parseChatTimestamp(msg.timestamp || msg.createdAt || 0);
+                if (parsed > latest) latest = parsed;
+            }
+            return latest > 0 ? latest : undefined;
+        };
+
+        const chatHasUserInteraction = (chat) => {
+            if (!chat) return false;
+            if (chat.lastUserMessageAt || inferLastUserMessageAt(chat)) return true;
+            const list = Array.isArray(chat.messages) ? chat.messages : [];
+            if (list.some(msg => msg?.role === "user" && String(msg?.content || "").trim())) return true;
+            return Number(chat.messageCount || 0) >= 2;
+        };
+
+        const parseChatTimestamp = (raw) => {
             const parsed = typeof raw === "number" ? raw : Date.parse(raw);
             return Number.isFinite(parsed) ? parsed : 0;
         };
 
+        const getChatTime = (chat) => {
+            const userAt = chat?.lastUserMessageAt || inferLastUserMessageAt(chat);
+            if (userAt) return parseChatTimestamp(userAt);
+            if (chatHasUserInteraction(chat)) {
+                return parseChatTimestamp(chat?.updatedAt || chat?.modifiedAt || chat?.createdAt || chat?.timestamp);
+            }
+            return parseChatTimestamp(chat?.createdAt || chat?.timestamp);
+        };
+
         const sortChatsNewestFirst = (chats) => {
-            return [...(chats || [])].sort((a, b) => getChatTime(b) - getChatTime(a));
+            return [...(chats || [])].sort((a, b) => {
+                const aActive = chatHasUserInteraction(a);
+                const bActive = chatHasUserInteraction(b);
+                if (aActive !== bActive) return aActive ? -1 : 1;
+                return getChatTime(b) - getChatTime(a);
+            });
         };
 
         const makeChatTitle = (text) => {
@@ -2124,16 +2158,16 @@ class OpenAI {
         };
 
         const SPEECH_PAUSE_MS_DESKTOP = {
-            ",": 160, "，": 160,
-            "、": 140,
-            ".": 260, "。": 260, "．": 260,
-            ";": 200, "；": 200,
-            ":": 170, "：": 170
+            ",": 65, "，": 65,
+            "、": 55,
+            ".": 110, "。": 110, "．": 110,
+            ";": 85, "；": 85,
+            ":": 70, "：": 70
         };
 
         const getSpeechPauseMs = (token, desktop = false) => {
             const table = desktop ? SPEECH_PAUSE_MS_DESKTOP : SPEECH_PAUSE_MS;
-            return table[token] ?? (desktop ? 180 : 350);
+            return table[token] ?? (desktop ? 80 : 350);
         };
 
         const SPEECH_OTHER_PUNCT_RE = /[！!？?·…—－\-「」『』【】（）()\[\]{}《》〈〉"'""''`\/\\|~@#$%^&*+=<>]/g;
@@ -2982,7 +3016,8 @@ class OpenAI {
                 }));
             };
 
-            const touchChatToTop = (chatId, patch = {}, replaceId = null) => {
+            const saveChatRecord = (chatId, patch = {}, options = {}) => {
+                const { replaceId = null, bumpUserActivity = false } = options;
                 const now = Date.now();
                 setSavedChats(prev => {
                     const base = (prev || []).filter(item => item.id !== replaceId);
@@ -2991,9 +3026,11 @@ class OpenAI {
                         ...old,
                         ...patch,
                         id: chatId,
-                        lastAccessedAt: now,
-                        updatedAt: now
+                        updatedAt: patch.updatedAt ?? now
                     };
+                    if (bumpUserActivity) {
+                        nextChat.lastUserMessageAt = now;
+                    }
                     const next = cleanupEmptyChats(upsertChat(base, nextChat), chatId);
                     const locals = next.filter(item => String(item.id).startsWith("local-") && !isEmptyConversation(item));
                     writeLocalChats(locals);
@@ -3015,17 +3052,12 @@ class OpenAI {
                     const data = (!isLocalChat && token) ? await client.loadConversation(token, chat.id) : { conversation: chat };
                     const conversation = data.conversation || chat;
 
-                    touchChatToTop(conversation.id || chat.id, conversation);
-					if (!isLocalChat && token) {
-					try {
-						await client.request({
-							action: "touchConversation",
-							conversationId: conversation.id || chat.id
-						}, token);
-					} catch (err) {
-						console.warn("更新聊天室排序時間失敗：", err);
-					}
-				}
+                    const loadedId = conversation.id || chat.id;
+                    const lastUserAt = inferLastUserMessageAt(conversation);
+                    saveChatRecord(loadedId, {
+                        ...conversation,
+                        ...(lastUserAt ? { lastUserMessageAt: lastUserAt } : {})
+                    }, { bumpUserActivity: false });
                     setMessages(conversation.messages || []);
                     setChatMemory(conversation.chatMemory || []);
                     setMedicationInfo(conversation.medicationInfo || null);
@@ -3076,8 +3108,7 @@ class OpenAI {
                         medicationInfo: null,
                         geminiChatId: "",
                         createdAt: Date.now(),
-                        updatedAt: Date.now(),
-                        lastAccessedAt: Date.now()
+                        updatedAt: Date.now()
                     };
                     const withoutOtherEmpty = (prev || []).filter(chat => chat.id === localId || !isEmptyConversation(chat));
                     const next = upsertChat(withoutOtherEmpty, localChat);
@@ -3491,8 +3522,6 @@ class OpenAI {
                             await wait(pauseAfter);
                         } else if (!isDesktopExperience()) {
                             await wait(mobileSpeech ? 200 : 120);
-                        } else {
-                            await wait(40);
                         }
                     }
 
@@ -3740,13 +3769,13 @@ class OpenAI {
                 setMessages(nextMessagesBeforeSend);
                 const activeId = activeSavedChatIdRef.current || activeSavedChatId || `local-${Date.now()}`;
                 if (!activeSavedChatIdRef.current) setActiveSavedChatId(activeId);
-                touchChatToTop(activeId, {
+                saveChatRecord(activeId, {
                     title: makeChatTitle(text),
                     messages: nextMessagesBeforeSend,
                     chatMemory: [...latestMemory, { role: "user", content: text }].slice(-10),
                     medicationInfo: latestMedicationInfo,
                     geminiChatId: latestGeminiChatId || ""
-                });
+                }, { bumpUserActivity: true });
                 const currentMemory = [...latestMemory, { role: "user", content: text }].slice(-10);
                 setChatMemory(currentMemory);
                 const shouldShowImageAnimation = false;
@@ -3844,13 +3873,16 @@ class OpenAI {
                     setMedicationInfo(info);
                     setCardCollapsed(window.innerWidth <= 768);
                     setChatMemory(finalMemory);
-                    touchChatToTop(finalChatId, {
+                    saveChatRecord(finalChatId, {
                         title: makeChatTitle(text),
                         messages: finalMessages,
                         chatMemory: finalMemory,
                         medicationInfo: info,
                         geminiChatId: response.chatId || latestGeminiChatId || ""
-                    }, finalChatId !== activeId ? activeId : null);
+                    }, {
+                        bumpUserActivity: false,
+                        replaceId: finalChatId !== activeId ? activeId : null
+                    });
                     notifyReply();
                     voiceLastAssistantTextRef.current = String(info.answer || "");
                     // v37：AI 文字已經顯示後立刻移除三點動畫，不要在朗讀期間保留第二個生成動畫。
