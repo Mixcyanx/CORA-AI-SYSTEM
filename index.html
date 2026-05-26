@@ -2328,6 +2328,8 @@ class OpenAI {
             const ttsPrimedAtRef = useRef(0);
             const greetingSpeakPendingRef = useRef(true);
             const greetingSpokenRef = useRef(false);
+            const greetingPlaybackActiveRef = useRef(false);
+            const avatarTtsLockRef = useRef(false);
             const playGreetingOnceRef = useRef(null);
             const lastCharacterClickRef = useRef(0);
             const unlockBrowserTTSRef = useRef(() => {});
@@ -2430,16 +2432,43 @@ class OpenAI {
 
             unlockBrowserTTSRef.current = unlockBrowserTTSIfNeeded;
 
+            const isAvatarGestureTarget = (event) => {
+                const el = event?.target;
+                return !!el?.closest?.(".cora-mobile-avatar-box, .cora-floating-avatar, .cora-mobile-avatar-message");
+            };
+
+            const stopActiveSpeech = () => {
+                ttsSessionIdRef.current += 1;
+                try { window.speechSynthesis?.cancel(); } catch {}
+                if (speechKeepAliveTimerRef.current) {
+                    clearInterval(speechKeepAliveTimerRef.current);
+                    speechKeepAliveTimerRef.current = null;
+                }
+                aiSpeechActiveRef.current = false;
+            };
+
             const playGreetingOnce = ({ finalize = true } = {}) => {
+                if (greetingPlaybackActiveRef.current) return;
                 if (finalize && greetingSpokenRef.current) return;
                 if (!finalize && greetingSpokenRef.current) return;
                 if (!audioEnabled) return;
-                unlockBrowserTTSIfNeeded({ force: true });
-                speakLocalRef.current?.(CORA_GREETING_TEXT);
+
+                greetingPlaybackActiveRef.current = true;
                 if (finalize) {
                     greetingSpokenRef.current = true;
                     greetingSpeakPendingRef.current = false;
                 }
+
+                unlockBrowserTTSIfNeeded({ force: !ttsUnlockedRef.current });
+
+                const run = async () => {
+                    try {
+                        await speakLocalRef.current?.(CORA_GREETING_TEXT, { mobileGreeting: isMobileOrTabletExperience() });
+                    } finally {
+                        greetingPlaybackActiveRef.current = false;
+                    }
+                };
+                run();
             };
             useEffect(() => {
                 playGreetingOnceRef.current = playGreetingOnce;
@@ -2602,7 +2631,10 @@ class OpenAI {
 
             useEffect(() => {
                 // v47：手機/平板須在使用者手勢中建立 TTS 信任工作階段（靜音極短 utterance）。
-                const onGesture = () => unlockBrowserTTSRef.current?.();
+                const onGesture = (event) => {
+                    if (isAvatarGestureTarget(event)) return;
+                    unlockBrowserTTSRef.current?.();
+                };
                 window.addEventListener('pointerdown', onGesture, { passive: true });
                 window.addEventListener('touchstart', onGesture, { passive: true });
                 window.addEventListener('click', onGesture, { passive: true });
@@ -2662,14 +2694,13 @@ class OpenAI {
                 };
 
                 if (strictGesture) {
-                    scheduleGreetingTry(320, false);
-                    scheduleGreetingTry(900, false);
-                    scheduleGreetingTry(1600, false);
+                    scheduleGreetingTry(1200, true);
                 } else {
                     scheduleGreetingTry(900, true);
                 }
 
-                const onFirstGestureForGreeting = () => {
+                const onFirstGestureForGreeting = (event) => {
+                    if (isAvatarGestureTarget(event)) return;
                     playGreetingOnceRef.current?.({ finalize: true });
                 };
                 window.addEventListener("touchstart", onFirstGestureForGreeting, { capture: true, once: true, passive: true });
@@ -3062,7 +3093,7 @@ class OpenAI {
                 }
             };
 
-            const speakLocal = async (text) => {
+            const speakLocal = async (text, options = {}) => {
 
                 const setMouthInstant = (mode) => {
                     const nextMode = mode === true ? "open" : (mode || "rest");
@@ -3187,6 +3218,9 @@ class OpenAI {
                 const splitSpeechText = (value) => {
                     const source = cleanSpeechText(value);
                     if (!source) return [];
+                    if (options.mobileGreeting && isMobileLikeBrowser()) {
+                        return [{ text: stripPunctuationForSpeech(source), pauseAfter: 0 }];
+                    }
                     const maxChunk = isMobileLikeBrowser() ? 110 : 180;
                     const segments = splitSpeechSegmentsWithPauses(source, maxChunk);
                     const maxChunks = isMobileLikeBrowser() ? 20 : 14;
@@ -3215,15 +3249,17 @@ class OpenAI {
                         null;
                 };
 
-                const speakOneChunk = async (chunk, preferredVoice) => {
+                const speakOneChunk = async (chunk, preferredVoice, chunkOpts = {}) => {
                     const synth = window.speechSynthesis;
                     if (!synth || !chunk) return false;
                     const mobileSpeech = isMobileLikeBrowser();
-                    const maxAttempts = mobileSpeech ? 10 : 8;
+                    const simpleMobile = !!chunkOpts.simpleMobile;
+                    const maxAttempts = simpleMobile ? 2 : (mobileSpeech ? 3 : 8);
 
                     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
                         let started = false;
                         let finished = false;
+                        let heardAudio = false;
                         let forceStartedTimer = null;
                         let watchdog = null;
                         let maxTimer = null;
@@ -3253,6 +3289,7 @@ class OpenAI {
                             const markStarted = () => {
                                 if (started || finished) return;
                                 started = true;
+                                heardAudio = true;
                                 // v45: 桌機瀏覽器一開始就立刻張嘴，不做尾段預先閉嘴，避免晚張早閉。
                                 if (audioEnabled) startSynthMouth(chunk);
                                 // 只有 Safari / 手機瀏覽器才使用尾段保護；桌機交給 onend 精準關嘴。
@@ -3287,8 +3324,12 @@ class OpenAI {
                             utterance.onend = () => finish(started || (Date.now() - speakStartedAt > 500));
                             utterance.onerror = (event) => {
                                 const err = event?.error || "";
-                                if (started && (err === "interrupted" || err === "canceled")) {
+                                if (heardAudio || started) {
                                     finish(true);
+                                    return;
+                                }
+                                if (err === "interrupted" || err === "canceled") {
+                                    finish(synth.speaking || synth.pending);
                                     return;
                                 }
                                 finish(false);
@@ -3328,10 +3369,12 @@ class OpenAI {
                                 watchdog = setTimeout(() => {
                                     if (!started && !finished) {
                                         try { synth.resume(); } catch {}
-                                        if (synth.speaking && !synth.pending) markStarted();
+                                        if (synth.speaking || synth.pending) markStarted();
                                         else finish(false);
                                     }
-                                }, isSafariBrowser() ? (attempt <= 3 ? 1800 : 2600) : (attempt <= 2 ? 1200 : 2000));
+                                }, simpleMobile
+                                    ? 2400
+                                    : (isSafariBrowser() ? (attempt <= 3 ? 1800 : 2600) : (attempt <= 2 ? 1200 : 2000)));
 
                                 maxTimer = setTimeout(() => {
                                     finish(started || synth.speaking);
@@ -3341,7 +3384,8 @@ class OpenAI {
                             }
                         });
 
-                        if (ok) return true;
+                        if (ok || heardAudio) return true;
+                        if (synth.speaking || synth.pending) return true;
                         try { synth.cancel(); } catch {}
                         await wait((isSafariBrowser() ? 320 : 220) + attempt * 140);
                     }
@@ -3406,11 +3450,12 @@ class OpenAI {
                         if (mobileSpeech && ci > 0 && !pauseAfter) {
                             await wait(isSafariBrowser() ? 280 : 180);
                         }
-                        let spoken = await speakOneChunk(chunk, preferredVoice);
-                        if (!spoken && mobileSpeech) {
+                        const simpleMobile = !!(options.mobileGreeting && mobileSpeech);
+                        let spoken = await speakOneChunk(chunk, preferredVoice, { simpleMobile });
+                        if (!spoken && mobileSpeech && !simpleMobile && !window.speechSynthesis?.speaking && !window.speechSynthesis?.pending) {
                             unlockBrowserTTSIfNeeded({ force: true });
                             await wait(260);
-                            spoken = await speakOneChunk(chunk, null);
+                            spoken = await speakOneChunk(chunk, null, { simpleMobile: true });
                         }
                         if (!spoken) {
                             console.warn("瀏覽器 TTS 本段未成功播放：", chunk.slice(0, 30));
@@ -3442,14 +3487,32 @@ class OpenAI {
                 if (now - lastCharacterClickRef.current < 1800) return;
                 lastCharacterClickRef.current = now;
                 if (!audioEnabled) return;
-
-                unlockBrowserTTSIfNeeded({ force: needsStrictTTSGesture() });
+                if (avatarTtsLockRef.current) return;
 
                 if (isMobileOrTabletExperience()) {
-                    speakLocal(CORA_GREETING_TEXT);
+                    if (greetingPlaybackActiveRef.current) {
+                        stopActiveSpeech();
+                        greetingPlaybackActiveRef.current = false;
+                    }
+                    avatarTtsLockRef.current = true;
+                    greetingSpokenRef.current = true;
+                    greetingSpeakPendingRef.current = false;
+                    if (!ttsUnlockedRef.current) {
+                        unlockBrowserTTSIfNeeded({ force: true });
+                    }
+                    const run = async () => {
+                        try {
+                            stopActiveSpeech();
+                            await speakLocal(CORA_GREETING_TEXT, { mobileGreeting: true });
+                        } finally {
+                            avatarTtsLockRef.current = false;
+                        }
+                    };
+                    run();
                     return;
                 }
 
+                unlockBrowserTTSIfNeeded({ force: false });
                 speakLocal(pickRandomDesktopFunLine());
             };
 
