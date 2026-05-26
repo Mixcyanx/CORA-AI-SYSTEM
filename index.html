@@ -194,26 +194,8 @@
         .cora-history-drawer { display:none; }
 
         .cora-floating-avatar { position:absolute; right:28px; bottom:112px; width:196px; height:250px; border:1px solid var(--gpt-border); border-radius:28px; background:var(--gpt-surface); box-shadow:0 18px 46px rgba(0,0,0,.18); overflow:visible; z-index:4; }
-        .cora-floating-avatar .cora-character-quip { max-width: min(300px, 42vw); }
-        .cora-floating-avatar > div:last-child { width:100%; height:100%; border-radius:28px; overflow:hidden; }
-        .cora-character-quip {
-            position: absolute;
-            left: 50%;
-            top: -8px;
-            transform: translate(-50%, -100%);
-            max-width: min(280px, 92vw);
-            padding: 10px 14px;
-            border-radius: 16px 16px 4px 16px;
-            background: var(--gpt-surface);
-            border: 1px solid var(--gpt-border);
-            box-shadow: 0 10px 28px rgba(0,0,0,.14);
-            font-size: 13px;
-            line-height: 1.45;
-            color: var(--gpt-text);
-            z-index: 6;
-            pointer-events: none;
-            text-align: center;
-        }
+        .cora-floating-avatar > div:last-child { width:100%; height:100%; border-radius:28px; overflow:hidden; cursor:pointer; }
+        .cora-floating-avatar[role="button"] { cursor:pointer; }
         .cora-floating-avatar-label {
     display: none !important;
 }
@@ -599,11 +581,6 @@
                 box-shadow: 0 10px 26px rgba(0,0,0,.14);
                 pointer-events: auto;
                 cursor: pointer;
-            }
-            .cora-mobile-avatar-box .cora-character-quip {
-                top: -6px;
-                max-width: min(240px, 78vw);
-                font-size: 12px;
             }
             .cora-mobile-avatar-box > div:last-child,
             .cora-mobile-avatar-box > div:last-child > div {
@@ -2179,7 +2156,7 @@ class OpenAI {
 
         // --- Components ---
 
-        const Character2D = ({ isTalking, audioEnabled, onClick }) => {
+        const Character2D = ({ isTalking, audioEnabled }) => {
             const [blink, setBlink] = useState(false);
             const mouthActive = Boolean(isTalking) && audioEnabled;
             const mouthMode = isTalking === "small" ? "small" : (isTalking === "o" ? "o" : (isTalking === "open" || isTalking === true ? "open" : "rest"));
@@ -2199,15 +2176,7 @@ class OpenAI {
             const avatarMouthO = "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Avatar_Mouth_O.png";
 
             return (
-                <div
-                    className={`relative w-full h-full flex items-center justify-center overflow-hidden bg-[#F8F1E7] dark:bg-slate-900 rounded-3xl transition-colors duration-300 ${onClick ? "cursor-pointer" : ""}`}
-                    onClick={onClick}
-                    onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(e); } } : undefined}
-                    role={onClick ? "button" : undefined}
-                    tabIndex={onClick ? 0 : undefined}
-                    title={onClick ? "點點 Cora 聊聊天" : undefined}
-                    aria-label={onClick ? "點擊 Cora 角色" : undefined}
-                >
+                <div className="relative w-full h-full flex items-center justify-center overflow-hidden bg-[#F8F1E7] dark:bg-slate-900 rounded-3xl transition-colors duration-300">
                     <motion.div
                         animate={{ y: [0, -6, 0] }}
                         transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
@@ -2310,11 +2279,10 @@ class OpenAI {
             const speechKeepAliveTimerRef = useRef(null);
             const ttsUnlockedRef = useRef(false);
             const ttsPrimedAtRef = useRef(0);
-            const greetingSpeakPendingRef = useRef(isMobileLikeDevice());
+            const greetingSpeakPendingRef = useRef(true);
             const greetingSpokenRef = useRef(false);
+            const playGreetingOnceRef = useRef(null);
             const lastCharacterClickRef = useRef(0);
-            const characterQuipTimerRef = useRef(null);
-            const [characterQuip, setCharacterQuip] = useState(null);
             const unlockBrowserTTSRef = useRef(() => {});
             const speakLocalRef = useRef(null);
             const safariAudioContextRef = useRef(null);
@@ -2406,11 +2374,6 @@ class OpenAI {
                     ttsUnlockedRef.current = true;
                     ttsPrimedAtRef.current = Date.now();
                     synth.speak(u);
-                    if (greetingSpeakPendingRef.current && speakLocalRef.current && !greetingSpokenRef.current) {
-                        greetingSpeakPendingRef.current = false;
-                        greetingSpokenRef.current = true;
-                        setTimeout(() => speakLocalRef.current?.(CORA_GREETING_TEXT), strictGesture ? 420 : 200);
-                    }
                     return true;
                 } catch {
                     ttsUnlockedRef.current = false;
@@ -2419,6 +2382,21 @@ class OpenAI {
             };
 
             unlockBrowserTTSRef.current = unlockBrowserTTSIfNeeded;
+
+            const playGreetingOnce = ({ finalize = true } = {}) => {
+                if (finalize && greetingSpokenRef.current) return;
+                if (!finalize && greetingSpokenRef.current) return;
+                if (!audioEnabled) return;
+                unlockBrowserTTSIfNeeded({ force: true });
+                speakLocalRef.current?.(CORA_GREETING_TEXT);
+                if (finalize) {
+                    greetingSpokenRef.current = true;
+                    greetingSpeakPendingRef.current = false;
+                }
+            };
+            useEffect(() => {
+                playGreetingOnceRef.current = playGreetingOnce;
+            });
 
             useEffect(() => {
                 activeSavedChatIdRef.current = activeSavedChatId;
@@ -2608,16 +2586,30 @@ class OpenAI {
 
             useEffect(() => {
                 setMessages([{ id: "greeting", role: "assistant", content: CORA_GREETING_TEXT }]);
-                greetingSpeakPendingRef.current = needsStrictTTSGesture();
-                const greetingDelay = needsStrictTTSGesture() ? 500 : 900;
-                const greetingTimer = setTimeout(() => {
-                    if (greetingSpokenRef.current) return;
-                    speakLocalRef.current?.(CORA_GREETING_TEXT);
-                    if (!needsStrictTTSGesture()) {
-                        greetingSpokenRef.current = true;
-                        greetingSpeakPendingRef.current = false;
-                    }
-                }, greetingDelay);
+                greetingSpokenRef.current = false;
+                greetingSpeakPendingRef.current = true;
+
+                const strictGesture = needsStrictTTSGesture();
+                const greetingTimers = [];
+                const scheduleGreetingTry = (ms, finalize) => {
+                    greetingTimers.push(setTimeout(() => {
+                        playGreetingOnceRef.current?.({ finalize });
+                    }, ms));
+                };
+
+                if (strictGesture) {
+                    scheduleGreetingTry(320, false);
+                    scheduleGreetingTry(900, false);
+                    scheduleGreetingTry(1600, false);
+                } else {
+                    scheduleGreetingTry(900, true);
+                }
+
+                const onFirstGestureForGreeting = () => {
+                    playGreetingOnceRef.current?.({ finalize: true });
+                };
+                window.addEventListener("touchstart", onFirstGestureForGreeting, { capture: true, once: true, passive: true });
+                window.addEventListener("pointerdown", onFirstGestureForGreeting, { capture: true, once: true, passive: true });
 
                 // Initialize Speech Recognition
                 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -2746,7 +2738,11 @@ class OpenAI {
                     };
                     recognitionRef.current = recognition;
                 }
-                return () => clearTimeout(greetingTimer);
+                return () => {
+                    greetingTimers.forEach((id) => clearTimeout(id));
+                    window.removeEventListener("touchstart", onFirstGestureForGreeting, true);
+                    window.removeEventListener("pointerdown", onFirstGestureForGreeting, true);
+                };
             }, []);
 
 
@@ -3382,14 +3378,12 @@ class OpenAI {
                 if (now - lastCharacterClickRef.current < 1800) return;
                 lastCharacterClickRef.current = now;
 
-                const line = CORA_FUN_QUOTES[Math.floor(Math.random() * CORA_FUN_QUOTES.length)];
-                setCharacterQuip(line);
-                if (characterQuipTimerRef.current) clearTimeout(characterQuipTimerRef.current);
-                characterQuipTimerRef.current = setTimeout(() => {
-                    setCharacterQuip(null);
-                    characterQuipTimerRef.current = null;
-                }, 5500);
+                if (greetingSpeakPendingRef.current && !greetingSpokenRef.current) {
+                    playGreetingOnce({ finalize: true });
+                    return;
+                }
 
+                const line = CORA_FUN_QUOTES[Math.floor(Math.random() * CORA_FUN_QUOTES.length)];
                 if (audioEnabled) {
                     unlockBrowserTTSIfNeeded({ force: needsStrictTTSGesture() });
                     speakLocal(line);
@@ -3981,9 +3975,8 @@ class OpenAI {
                             )}
 
                             <div className="cora-mobile-avatar-message">
-                                <div className="cora-mobile-avatar-box">
-                                    {characterQuip && <div className="cora-character-quip" aria-live="polite">{characterQuip}</div>}
-                                    <Character2D isTalking={isTalking} audioEnabled={audioEnabled} onClick={handleCharacterClick} />
+                                <div className="cora-mobile-avatar-box" onClick={handleCharacterClick} role="button" tabIndex={0} aria-label="點擊 Cora 角色" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleCharacterClick(); } }}>
+                                    <Character2D isTalking={isTalking} audioEnabled={audioEnabled} />
                                 </div>
                             </div>
 
@@ -3994,10 +3987,9 @@ class OpenAI {
                             )}
                         </div>
 
-                        <div className="cora-floating-avatar">
+                        <div className="cora-floating-avatar" onClick={handleCharacterClick} role="button" tabIndex={0} aria-label="點擊 Cora 角色" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleCharacterClick(); } }} title="點點 Cora 聊聊天">
                             <div className="cora-floating-avatar-label">CORA</div>
-                            {characterQuip && <div className="cora-character-quip" aria-live="polite">{characterQuip}</div>}
-                            <Character2D isTalking={isTalking} audioEnabled={audioEnabled} onClick={handleCharacterClick} />
+                            <Character2D isTalking={isTalking} audioEnabled={audioEnabled} />
                         </div>
 
                         <div className="gpt-composer-wrap">
