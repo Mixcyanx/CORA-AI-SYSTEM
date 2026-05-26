@@ -2228,9 +2228,18 @@ class OpenAI {
             return final;
         };
 
-        const upsertChat = (list, chat) => {
-            const next = [chat, ...(list || []).filter(item => item.id !== chat.id)];
-            return sortChatsNewestFirst(next);
+        const moveChatToTop = (list, chat) => {
+            return [chat, ...(list || []).filter(item => item.id !== chat.id)];
+        };
+
+        const normalizeChatForSort = (chat) => {
+            if (!chat) return chat;
+            const lastUserAt = chat.lastUserMessageAt || inferLastUserMessageAt(chat);
+            const { lastAccessedAt: _drop, ...rest } = chat;
+            return {
+                ...rest,
+                ...(lastUserAt ? { lastUserMessageAt: lastUserAt } : {})
+            };
         };
 
 
@@ -2958,8 +2967,8 @@ class OpenAI {
                 }
                 try {
                     const data = await client.listConversations(token);
-                    const cloudChats = sortChatsNewestFirst(data.conversations || []);
-                    const localChats = readLocalChats();
+                    const cloudChats = (data.conversations || []).map(normalizeChatForSort);
+                    const localChats = readLocalChats().map(normalizeChatForSort);
                     const merged = cleanupEmptyChats(sortChatsNewestFirst([...localChats, ...cloudChats]), activeSavedChatIdRef.current);
                     writeLocalChats(merged.filter(item => String(item.id).startsWith("local-") && !isEmptyConversation(item)));
                     setSavedChats(merged);
@@ -3007,11 +3016,11 @@ class OpenAI {
             };
 
             const cleanupEmptyChats = (chats, keepId = activeSavedChatIdRef.current) => {
-                return sortChatsNewestFirst((chats || []).filter(chat => {
+                return (chats || []).filter(chat => {
                     if (!chat) return false;
                     if (keepId && chat.id === keepId) return true;
                     return !isEmptyConversation(chat);
-                }));
+                });
             };
 
             const saveChatRecord = (chatId, patch = {}, options = {}) => {
@@ -3027,17 +3036,18 @@ class OpenAI {
                         merged.lastUserMessageAt = now;
                         merged.updatedAt = now;
                     } else {
-                        merged.lastUserMessageAt = patch.lastUserMessageAt ?? old.lastUserMessageAt ?? inferLastUserMessageAt(merged);
-                        if (patch.updatedAt === undefined) merged.updatedAt = old.updatedAt;
+                        merged.lastUserMessageAt = old.lastUserMessageAt ?? patch.lastUserMessageAt;
+                        merged.updatedAt = old.updatedAt ?? patch.updatedAt;
+                        delete merged.lastAccessedAt;
                     }
 
                     let next;
                     if (bumpUserActivity) {
-                        next = upsertChat(base, merged);
+                        next = moveChatToTop(base, merged);
                     } else if (exists) {
                         next = base.map(item => (item.id === chatId ? merged : item));
                     } else {
-                        next = sortChatsNewestFirst([...base, merged]);
+                        next = [...base, merged];
                     }
 
                     next = cleanupEmptyChats(next, chatId);
@@ -3062,11 +3072,14 @@ class OpenAI {
                     const conversation = data.conversation || chat;
 
                     const loadedId = conversation.id || chat.id;
-                    const lastUserAt = conversation.lastUserMessageAt || inferLastUserMessageAt(conversation);
-                    const { lastAccessedAt: _dropAccessed, ...conversationWithoutAccess } = conversation || {};
                     saveChatRecord(loadedId, {
-                        ...conversationWithoutAccess,
-                        ...(lastUserAt ? { lastUserMessageAt: lastUserAt } : {})
+                        title: conversation.title,
+                        messages: conversation.messages || [],
+                        chatMemory: conversation.chatMemory || [],
+                        medicationInfo: conversation.medicationInfo || null,
+                        geminiChatId: conversation.geminiChatId || "",
+                        messageCount: conversation.messageCount,
+                        createdAt: conversation.createdAt
                     }, { bumpUserActivity: false });
                     setMessages(conversation.messages || []);
                     setChatMemory(conversation.chatMemory || []);
@@ -3121,7 +3134,7 @@ class OpenAI {
                         updatedAt: Date.now()
                     };
                     const withoutOtherEmpty = (prev || []).filter(chat => chat.id === localId || !isEmptyConversation(chat));
-                    const next = upsertChat(withoutOtherEmpty, localChat);
+                    const next = [...withoutOtherEmpty.filter(chat => chat.id !== localId), localChat];
                     writeLocalChats(next.filter(item => String(item.id).startsWith("local-") && !isEmptyConversation(item)));
                     return next;
                 });
@@ -4066,7 +4079,7 @@ class OpenAI {
                             {savedChats.length === 0 && (
                                 <div className="text-xs text-zinc-400 px-3 py-2">尚無對話紀錄</div>
                             )}
-                            {sortChatsNewestFirst(savedChats).map(chat => (
+                            {savedChats.map(chat => (
                                 <div key={chat.id} className={`gpt-history-row ${activeSavedChatId === chat.id ? "active" : ""}`}>
                                     <button type="button" onClick={() => loadConversation(chat)} className="gpt-history-main">
                                         <div className="gpt-history-title">{chat.title || "未命名對話"}</div>
