@@ -5,9 +5,9 @@
 export default {
   async fetch(request) {
 
-    const GEMINIDATA_TOKEN = "Bearer GEMINIDATA Y 資料庫 TOKEN";
+    const GEMINIDATA_TOKEN = "Bearer GEMINIDATA 資料庫 API TOKEN";
     const CHATGPT_API = "https://free.v36.cm/v1/chat/completions";
-    const CHATGPT_TOKEN = "Bearer CHATGPT公益API TOKEN";
+    const CHATGPT_TOKEN = "Bearer CHATGPT 公益 API TOKEN";
 
     const FIREBASE_PROJECT_ID = "cora-ai-system";
     const FIREBASE_WEB_API_KEY = "AIzaSyA-LX84ad-waxOOBsm3tXWJv_iWFtj8N34";
@@ -477,7 +477,10 @@ ${userQuestion}
       const finalPrompt = `
 你是 CORA AI 智慧藥物助手。
 
-請像真人藥師自然聊天。
+請像真人藥師自然聊天，回答務必簡潔：
+- 一般問題 2～4 句即可，不要長篇大論或重複問候
+- 能用一句話說清楚的不要拆成多段
+- 條列重點時每項盡量一行，總字數宜短
 
 個人記憶模式：${personalMemoryEnabled ? "開啟，允許根據最近對話與跨聊天室個人記憶維持上下文。" : "關閉，不要使用過去對話做個人化推論。"}
 請支援一般 ChatGPT 問答、現在時間、摘要、翻譯、程式、創意發想、圖片生成請求等。非藥物問題不要硬套藥物卡片。
@@ -513,6 +516,7 @@ ${userQuestion}
 8.涉及劑量、孕婦、兒童、慢性病、交互作用、過敏或嚴重副作用時，一定要提醒使用者諮詢醫師或藥師。
 9.drugCard 不確定的欄位請用空陣列 []，不要亂填。
 10.如果問題不是藥物問題，也可以自然對話，但仍維持 CORA AI 的友善專業語氣。
+11.answer 字數宜短，一般 80～200 字內說完重點，避免冗長重複。
 
 最近對話：
 ${historyText || "無"}
@@ -557,7 +561,7 @@ ${graphHasUsefulData ? graphSummary : "NO_USEFUL_GRAPH_DATA"}
                 {
                   role: "system",
                   content:
-                    "你是 CORA AI 智慧助手。預設使用繁體中文，但必須支援使用者指定的任何語言。藥物問題有 GeminiData Knowledge Graph 資料時優先使用；沒有可用資料或不是藥物問題時，由 ChatGPT 根據一般知識、工具結果與安全原則回答。"
+                    "你是 CORA AI 智慧助手。預設使用繁體中文，但必須支援使用者指定的任何語言。回答要簡潔口語，像真人藥師聊天，避免冗長。藥物問題有 GeminiData Knowledge Graph 資料時優先使用；沒有可用資料或不是藥物問題時，由 ChatGPT 根據一般知識、工具結果與安全原則回答。"
                 },
                 {
                   role: "user",
@@ -565,7 +569,8 @@ ${graphHasUsefulData ? graphSummary : "NO_USEFUL_GRAPH_DATA"}
                     finalPrompt
                 }
               ],
-              temperature: 0.35
+              temperature: 0.35,
+              max_tokens: 480
             })
           }
         );
@@ -671,7 +676,8 @@ ${graphHasUsefulData ? graphSummary : "NO_USEFUL_GRAPH_DATA"}
                 image_exploration:
                   drugCard.image_exploration
               },
-              geminiChatId: chatId
+              geminiChatId: chatId,
+              bumpUserActivity: true
             }
           );
 
@@ -1086,6 +1092,46 @@ function normalizeConversationId(id) {
 }
 
 // ========================================
+// CONVERSATION SORT / USER ACTIVITY
+// ========================================
+function parseConversationTimestamp(raw) {
+  const parsed = typeof raw === "number" ? raw : Date.parse(raw || "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function conversationHasUserMessage(conversation) {
+  const list = Array.isArray(conversation?.messages)
+    ? conversation.messages
+    : [];
+  return list.some(
+    msg =>
+      msg?.role === "user" &&
+      String(msg?.content || "").trim()
+  );
+}
+
+function resolveLastUserMessageAt(conversation) {
+  if (conversation?.lastUserMessageAt) {
+    return conversation.lastUserMessageAt;
+  }
+
+  const list = Array.isArray(conversation?.messages)
+    ? conversation.messages
+    : [];
+
+  let latest = 0;
+  for (const msg of list) {
+    if (msg?.role !== "user") continue;
+    if (!String(msg?.content || "").trim()) continue;
+    const raw = msg.timestamp || msg.createdAt || 0;
+    const parsed = parseConversationTimestamp(raw);
+    if (parsed > latest) latest = parsed;
+  }
+
+  return latest > 0 ? new Date(latest).toISOString() : "";
+}
+
+// ========================================
 // SAVE CONVERSATION
 // ========================================
 async function saveConversation(
@@ -1146,14 +1192,24 @@ async function saveConversation(
       updatedAt: {
         timestampValue:
           new Date().toISOString()
-      },
-
-      lastAccessedAt: {
-        timestampValue:
-          new Date().toISOString()
       }
     }
   };
+
+  const lastUserMessageAt =
+    resolveLastUserMessageAt(conversation);
+
+  if (lastUserMessageAt) {
+    payload.fields.lastUserMessageAt = {
+      timestampValue: lastUserMessageAt
+    };
+
+    if (conversation.bumpUserActivity) {
+      payload.fields.lastAccessedAt = {
+        timestampValue: lastUserMessageAt
+      };
+    }
+  }
 
   const url =
     `${firestoreBase(projectId)}` +
@@ -1352,16 +1408,26 @@ async function listConversations(
       lastAccessedAt:
         fields.lastAccessedAt?.timestampValue || "",
 
+      lastUserMessageAt:
+        fields.lastUserMessageAt?.timestampValue || "",
+
       createdAt:
         fields.createdAt?.timestampValue || ""
     };
   });
 
+  const chatIsActive = (chat) =>
+    !!chat?.lastUserMessageAt ||
+    Number(chat?.messageCount || 0) >= 2 ||
+    conversationHasUserMessage(chat);
+
   return dedupeConversations(rows)
-    .sort((a, b) =>
-      getConversationTime(b) -
-      getConversationTime(a)
-    );
+    .sort((a, b) => {
+      const aActive = chatIsActive(a);
+      const bActive = chatIsActive(b);
+      if (aActive !== bActive) return aActive ? -1 : 1;
+      return getConversationTime(b) - getConversationTime(a);
+    });
 }
 
 // ========================================
@@ -1370,7 +1436,7 @@ async function listConversations(
 function getConversationTime(chat) {
 
   const raw =
-    chat?.lastAccessedAt ||
+    chat?.lastUserMessageAt ||
     chat?.updatedAt ||
     chat?.createdAt ||
     0;
