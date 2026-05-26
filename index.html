@@ -194,7 +194,26 @@
         .cora-history-drawer { display:none; }
 
         .cora-floating-avatar { position:absolute; right:28px; bottom:112px; width:196px; height:250px; border:1px solid var(--gpt-border); border-radius:28px; background:var(--gpt-surface); box-shadow:0 18px 46px rgba(0,0,0,.18); overflow:visible; z-index:4; }
+        .cora-floating-avatar .cora-character-quip { max-width: min(300px, 42vw); }
         .cora-floating-avatar > div:last-child { width:100%; height:100%; border-radius:28px; overflow:hidden; }
+        .cora-character-quip {
+            position: absolute;
+            left: 50%;
+            top: -8px;
+            transform: translate(-50%, -100%);
+            max-width: min(280px, 92vw);
+            padding: 10px 14px;
+            border-radius: 16px 16px 4px 16px;
+            background: var(--gpt-surface);
+            border: 1px solid var(--gpt-border);
+            box-shadow: 0 10px 28px rgba(0,0,0,.14);
+            font-size: 13px;
+            line-height: 1.45;
+            color: var(--gpt-text);
+            z-index: 6;
+            pointer-events: none;
+            text-align: center;
+        }
         .cora-floating-avatar-label {
     display: none !important;
 }
@@ -570,17 +589,24 @@
                 padding: 8px 14px 18px;
             }
             .cora-mobile-avatar-box {
+                position: relative;
                 width: 118px;
                 height: 154px;
                 border: 1px solid var(--gpt-border);
                 border-radius: 20px;
                 background: var(--gpt-surface);
-                overflow: hidden;
+                overflow: visible;
                 box-shadow: 0 10px 26px rgba(0,0,0,.14);
-                pointer-events: none;
+                pointer-events: auto;
+                cursor: pointer;
             }
-            .cora-mobile-avatar-box > div,
-            .cora-mobile-avatar-box > div > div {
+            .cora-mobile-avatar-box .cora-character-quip {
+                top: -6px;
+                max-width: min(240px, 78vw);
+                font-size: 12px;
+            }
+            .cora-mobile-avatar-box > div:last-child,
+            .cora-mobile-avatar-box > div:last-child > div {
                 width: 100%;
                 height: 100%;
                 border-radius: 20px !important;
@@ -2035,13 +2061,89 @@ class OpenAI {
                 .replace(/>/g, "大於");
         };
 
-        const SPEECH_PUNCT_RE = /[。．.！!？?；;，,、：:·…—－\-「」『』【】（）()\[\]{}《》〈〉"'""''`:：\/\\|~@#$%^&*+=<>]/g;
+        const CORA_GREETING_TEXT = "Hi，我是 Cora！我是您的 AI 藥師助手。我可以幫您解說藥物成分、適應症與副作用，讓用藥更安心。請問今天有什麼我可以幫您的嗎？";
+
+        const CORA_FUN_QUOTES = [
+            "嘿，別一直盯著我看啦，有藥物問題快問我！",
+            "今日份健康小提醒：記得按時服藥，別自己亂加減劑量喔。",
+            "我是 Cora，不是搜尋引擎，但查藥我還算專業啦。",
+            "偷偷告訴你，藥袋看不懂可以拍照給我。",
+            "累了就休息一下，身體比進度條重要。",
+            "多喝水、睡飽一點，很多小毛病會乖一點。",
+            "有副作用疑慮別硬撐，問醫師或藥師最安心。",
+            "我嘴巴會動，但真正厲害的是幫你把藥講清楚。",
+            "噓——我剛剛沒有偷吃糖果，真的。",
+            "點我一下算打招呼，接下來換你出題！",
+            "如果你正在猶豫要不要問，我的答案是：問！",
+            "感冒季到了，洗手比點我還重要喔。",
+            "孕婦、小孩用藥一定要特別小心，我可以幫你整理重點。",
+            "有兩種藥一起吃？先讓我看看有沒有交互作用。",
+            "你今天已經很棒了，記得也對自己好一點。"
+        ];
+
+        const SPEECH_PAUSE_DELIM_RE = /[,，.。.;；:：]/;
+        const SPEECH_PAUSE_MS = {
+            ",": 340, "，": 340,
+            ".": 520, "。": 520, "．": 520,
+            ";": 400, "；": 400,
+            ":": 300, "：": 300
+        };
+
+        const SPEECH_OTHER_PUNCT_RE = /[！!？?、·…—－\-「」『』【】（）()\[\]{}《》〈〉"'""''`\/\\|~@#$%^&*+=<>]/g;
 
         const stripPunctuationForSpeech = (value) => {
             return String(value || "")
-                .replace(SPEECH_PUNCT_RE, " ")
+                .replace(SPEECH_OTHER_PUNCT_RE, " ")
+                .replace(SPEECH_PAUSE_DELIM_RE, " ")
                 .replace(/\s+/g, " ")
                 .trim();
+        };
+
+        const splitSpeechSegmentsWithPauses = (source, maxChunk = 180) => {
+            const cleaned = String(source || "").trim();
+            if (!cleaned) return [];
+
+            const raw = [];
+            const tokens = cleaned.split(/([,，.。.;；:：])/);
+            let buffer = "";
+            for (const token of tokens) {
+                if (!token) continue;
+                if (SPEECH_PAUSE_DELIM_RE.test(token)) {
+                    const text = stripPunctuationForSpeech(buffer);
+                    if (text) raw.push({ text, pauseAfter: SPEECH_PAUSE_MS[token] ?? 350 });
+                    buffer = "";
+                } else {
+                    buffer += token;
+                }
+            }
+            const tail = stripPunctuationForSpeech(buffer);
+            if (tail) raw.push({ text: tail, pauseAfter: 0 });
+
+            const merged = [];
+            for (const seg of raw) {
+                const last = merged[merged.length - 1];
+                if (last && (last.text.length + seg.text.length) <= maxChunk) {
+                    last.text = `${last.text} ${seg.text}`.trim();
+                    last.pauseAfter = seg.pauseAfter;
+                } else {
+                    merged.push({ text: seg.text, pauseAfter: seg.pauseAfter });
+                }
+            }
+
+            const final = [];
+            for (const seg of merged) {
+                if (seg.text.length <= maxChunk) {
+                    final.push(seg);
+                    continue;
+                }
+                let rest = seg.text;
+                while (rest.length > maxChunk) {
+                    final.push({ text: rest.slice(0, maxChunk), pauseAfter: 0 });
+                    rest = rest.slice(maxChunk).trim();
+                }
+                if (rest) final.push({ text: rest, pauseAfter: seg.pauseAfter });
+            }
+            return final;
         };
 
         const upsertChat = (list, chat) => {
@@ -2077,7 +2179,7 @@ class OpenAI {
 
         // --- Components ---
 
-        const Character2D = ({ isTalking, audioEnabled }) => {
+        const Character2D = ({ isTalking, audioEnabled, onClick }) => {
             const [blink, setBlink] = useState(false);
             const mouthActive = Boolean(isTalking) && audioEnabled;
             const mouthMode = isTalking === "small" ? "small" : (isTalking === "o" ? "o" : (isTalking === "open" || isTalking === true ? "open" : "rest"));
@@ -2097,7 +2199,15 @@ class OpenAI {
             const avatarMouthO = "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Avatar_Mouth_O.png";
 
             return (
-                <div className="relative w-full h-full flex items-center justify-center overflow-hidden bg-[#F8F1E7] dark:bg-slate-900 rounded-3xl transition-colors duration-300">
+                <div
+                    className={`relative w-full h-full flex items-center justify-center overflow-hidden bg-[#F8F1E7] dark:bg-slate-900 rounded-3xl transition-colors duration-300 ${onClick ? "cursor-pointer" : ""}`}
+                    onClick={onClick}
+                    onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(e); } } : undefined}
+                    role={onClick ? "button" : undefined}
+                    tabIndex={onClick ? 0 : undefined}
+                    title={onClick ? "點點 Cora 聊聊天" : undefined}
+                    aria-label={onClick ? "點擊 Cora 角色" : undefined}
+                >
                     <motion.div
                         animate={{ y: [0, -6, 0] }}
                         transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
@@ -2201,6 +2311,10 @@ class OpenAI {
             const ttsUnlockedRef = useRef(false);
             const ttsPrimedAtRef = useRef(0);
             const greetingSpeakPendingRef = useRef(isMobileLikeDevice());
+            const greetingSpokenRef = useRef(false);
+            const lastCharacterClickRef = useRef(0);
+            const characterQuipTimerRef = useRef(null);
+            const [characterQuip, setCharacterQuip] = useState(null);
             const unlockBrowserTTSRef = useRef(() => {});
             const speakLocalRef = useRef(null);
             const safariAudioContextRef = useRef(null);
@@ -2292,10 +2406,10 @@ class OpenAI {
                     ttsUnlockedRef.current = true;
                     ttsPrimedAtRef.current = Date.now();
                     synth.speak(u);
-                    if (greetingSpeakPendingRef.current && speakLocalRef.current) {
+                    if (greetingSpeakPendingRef.current && speakLocalRef.current && !greetingSpokenRef.current) {
                         greetingSpeakPendingRef.current = false;
-                        const greetingText = "Hi，我是 Cora！我是您的 AI 藥師助手。我可以幫您解說藥物成分、適應症與副作用，讓用藥更安心。請問今天有什麼我可以幫您的嗎？";
-                        setTimeout(() => speakLocalRef.current?.(greetingText), strictGesture ? 420 : 200);
+                        greetingSpokenRef.current = true;
+                        setTimeout(() => speakLocalRef.current?.(CORA_GREETING_TEXT), strictGesture ? 420 : 200);
                     }
                     return true;
                 } catch {
@@ -2493,12 +2607,17 @@ class OpenAI {
             }, [audioEnabled]);
 
             useEffect(() => {
-                const greetingText = "Hi，我是 Cora！我是您的 AI 藥師助手。我可以幫您解說藥物成分、適應症與副作用，讓用藥更安心。請問今天有什麼我可以幫您的嗎？";
-                setMessages([{ id: "greeting", role: "assistant", content: greetingText }]);
-                // 手機/平板未經手勢解鎖前無法自動朗讀，避免靜默失敗。
-                if (!isMobileLikeDevice()) {
-                    setTimeout(() => speakLocal(greetingText), 1000);
-                }
+                setMessages([{ id: "greeting", role: "assistant", content: CORA_GREETING_TEXT }]);
+                greetingSpeakPendingRef.current = needsStrictTTSGesture();
+                const greetingDelay = needsStrictTTSGesture() ? 500 : 900;
+                const greetingTimer = setTimeout(() => {
+                    if (greetingSpokenRef.current) return;
+                    speakLocalRef.current?.(CORA_GREETING_TEXT);
+                    if (!needsStrictTTSGesture()) {
+                        greetingSpokenRef.current = true;
+                        greetingSpeakPendingRef.current = false;
+                    }
+                }, greetingDelay);
 
                 // Initialize Speech Recognition
                 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -2627,6 +2746,7 @@ class OpenAI {
                     };
                     recognitionRef.current = recognition;
                 }
+                return () => clearTimeout(greetingTimer);
             }, []);
 
 
@@ -3007,24 +3127,10 @@ class OpenAI {
                 const splitSpeechText = (value) => {
                     const source = cleanSpeechText(value);
                     if (!source) return [];
-                    const maxClause = isMobileLikeBrowser() ? 72 : 120;
                     const maxChunk = isMobileLikeBrowser() ? 110 : 180;
-                    const parts = source.match(new RegExp(`[^。！？!?；;，,\\n]{1,${maxClause}}[。！？!?；;，,\\n]?`, "g")) || [source];
-                    const chunks = [];
-                    let buffer = "";
-                    for (const part of parts) {
-                        const piece = stripPunctuationForSpeech(String(part || ""));
-                        if (!piece) continue;
-                        if ((buffer + piece).length > maxChunk) {
-                            if (buffer) chunks.push(buffer.trim());
-                            buffer = piece;
-                        } else {
-                            buffer += piece;
-                        }
-                    }
-                    if (buffer.trim()) chunks.push(buffer.trim());
-                    const maxChunks = isMobileLikeBrowser() ? 16 : 12;
-                    return chunks.slice(0, maxChunks);
+                    const segments = splitSpeechSegmentsWithPauses(source, maxChunk);
+                    const maxChunks = isMobileLikeBrowser() ? 20 : 14;
+                    return segments.slice(0, maxChunks);
                 };
 
                 const getVoicesReady = async () => {
@@ -3232,9 +3338,12 @@ class OpenAI {
                     const preferredVoice = pickVoice(voices);
 
                     for (let ci = 0; ci < chunks.length; ci++) {
-                        const chunk = chunks[ci];
+                        const segment = chunks[ci];
+                        const chunk = typeof segment === "string" ? segment : segment.text;
+                        const pauseAfter = typeof segment === "string" ? 0 : (segment.pauseAfter || 0);
+                        if (!chunk) continue;
                         if (!audioEnabled || currentTtsSession !== ttsSessionIdRef.current) break;
-                        if (mobileSpeech && ci > 0) {
+                        if (mobileSpeech && ci > 0 && !pauseAfter) {
                             await wait(isSafariBrowser() ? 280 : 180);
                         }
                         let spoken = await speakOneChunk(chunk, preferredVoice);
@@ -3246,7 +3355,11 @@ class OpenAI {
                         if (!spoken) {
                             console.warn("瀏覽器 TTS 本段未成功播放：", chunk.slice(0, 30));
                         }
-                        await wait(mobileSpeech ? 200 : 120);
+                        if (pauseAfter > 0) {
+                            await wait(pauseAfter);
+                        } else {
+                            await wait(mobileSpeech ? 200 : 120);
+                        }
                     }
 
                 } catch (err) {
@@ -3263,6 +3376,25 @@ class OpenAI {
             };
 
             speakLocalRef.current = speakLocal;
+
+            const handleCharacterClick = () => {
+                const now = Date.now();
+                if (now - lastCharacterClickRef.current < 1800) return;
+                lastCharacterClickRef.current = now;
+
+                const line = CORA_FUN_QUOTES[Math.floor(Math.random() * CORA_FUN_QUOTES.length)];
+                setCharacterQuip(line);
+                if (characterQuipTimerRef.current) clearTimeout(characterQuipTimerRef.current);
+                characterQuipTimerRef.current = setTimeout(() => {
+                    setCharacterQuip(null);
+                    characterQuipTimerRef.current = null;
+                }, 5500);
+
+                if (audioEnabled) {
+                    unlockBrowserTTSIfNeeded({ force: needsStrictTTSGesture() });
+                    speakLocal(line);
+                }
+            };
 
             const notifyReply = () => {
                 // Android 通常可用；iPhone Safari 對震動 API 支援較有限，PWA 或部分瀏覽器可能有效。
@@ -3850,7 +3982,8 @@ class OpenAI {
 
                             <div className="cora-mobile-avatar-message">
                                 <div className="cora-mobile-avatar-box">
-                                    <Character2D isTalking={isTalking} audioEnabled={audioEnabled} />
+                                    {characterQuip && <div className="cora-character-quip" aria-live="polite">{characterQuip}</div>}
+                                    <Character2D isTalking={isTalking} audioEnabled={audioEnabled} onClick={handleCharacterClick} />
                                 </div>
                             </div>
 
@@ -3863,7 +3996,8 @@ class OpenAI {
 
                         <div className="cora-floating-avatar">
                             <div className="cora-floating-avatar-label">CORA</div>
-                            <Character2D isTalking={isTalking} audioEnabled={audioEnabled} />
+                            {characterQuip && <div className="cora-character-quip" aria-live="polite">{characterQuip}</div>}
+                            <Character2D isTalking={isTalking} audioEnabled={audioEnabled} onClick={handleCharacterClick} />
                         </div>
 
                         <div className="gpt-composer-wrap">
