@@ -2017,6 +2017,20 @@ class OpenAI {
             return cleaned.length > 18 ? `${cleaned.slice(0, 18)}...` : cleaned || "新的對話";
         };
 
+        const isMobileLikeDevice = () => {
+            const ua = navigator.userAgent || "";
+            return /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+        };
+
+        const SPEECH_PUNCT_RE = /[。．.！!？?；;，,、：:·…—－\-「」『』【】（）()\[\]{}《》〈〉"'""''`:：\/\\|~@#$%^&*+=<>]/g;
+
+        const stripPunctuationForSpeech = (value) => {
+            return String(value || "")
+                .replace(SPEECH_PUNCT_RE, " ")
+                .replace(/\s+/g, " ")
+                .trim();
+        };
+
         const upsertChat = (list, chat) => {
             const next = [chat, ...(list || []).filter(item => item.id !== chat.id)];
             return sortChatsNewestFirst(next);
@@ -2213,6 +2227,41 @@ class OpenAI {
             useEffect(() => { personalMemoryEnabledRef.current = personalMemoryEnabled; }, [personalMemoryEnabled]);
             useEffect(() => { voiceAutoModeRef.current = voiceAutoMode; }, [voiceAutoMode]);
 
+            const unlockBrowserTTSIfNeeded = () => {
+                if (!('speechSynthesis' in window)) return;
+                try {
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                    if (AudioCtx) {
+                        const ctx = safariAudioContextRef.current || new AudioCtx();
+                        safariAudioContextRef.current = ctx;
+                        ctx.resume?.();
+                        const osc = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        gain.gain.value = 0.0001;
+                        osc.connect(gain);
+                        gain.connect(ctx.destination);
+                        osc.start();
+                        osc.stop(ctx.currentTime + 0.03);
+                    }
+                } catch {}
+                if (ttsUnlockedRef.current) return;
+                try {
+                    const u = new SpeechSynthesisUtterance('\u200B');
+                    u.lang = 'zh-TW';
+                    u.volume = 0.01;
+                    u.rate = 1.2;
+                    ttsUnlockedRef.current = true;
+                    window.speechSynthesis.cancel();
+                    window.speechSynthesis.resume();
+                    window.speechSynthesis.speak(u);
+                    setTimeout(() => {
+                        try { window.speechSynthesis.cancel(); } catch {}
+                    }, 180);
+                } catch {
+                    ttsUnlockedRef.current = false;
+                }
+            };
+
             useEffect(() => {
                 activeSavedChatIdRef.current = activeSavedChatId;
             }, [activeSavedChatId]);
@@ -2352,52 +2401,14 @@ class OpenAI {
             }, []);
 
             useEffect(() => {
-                // v39：iPhone / Android 有些瀏覽器會要求 TTS 先經過使用者手勢解鎖。
-                // 使用者第一次點擊頁面、按麥克風、送出或觸控時，先播放極短靜音 utterance 讓 speechSynthesis 進入可用狀態。
-                const unlockBrowserTTS = () => {
-                    if (ttsUnlockedRef.current || !('speechSynthesis' in window)) return;
-                    try {
-                        // iOS Safari 對 speechSynthesis 很挑剔：必須在使用者手勢中同時解鎖 AudioContext 與 TTS。
-                        try {
-                            const AudioCtx = window.AudioContext || window.webkitAudioContext;
-                            if (AudioCtx) {
-                                const ctx = safariAudioContextRef.current || new AudioCtx();
-                                safariAudioContextRef.current = ctx;
-                                ctx.resume?.();
-                                const osc = ctx.createOscillator();
-                                const gain = ctx.createGain();
-                                gain.gain.value = 0.0001;
-                                osc.connect(gain);
-                                gain.connect(ctx.destination);
-                                osc.start();
-                                osc.stop(ctx.currentTime + 0.03);
-                            }
-                        } catch {}
-
-                        const u = new SpeechSynthesisUtterance('。');
-                        u.lang = 'zh-TW';
-                        u.volume = 0.02;
-                        u.rate = 1;
-                        u.pitch = 1;
-                        ttsUnlockedRef.current = true;
-                        window.speechSynthesis.cancel();
-                        window.speechSynthesis.resume();
-                        window.speechSynthesis.speak(u);
-                        setTimeout(() => {
-                            try { window.speechSynthesis.resume(); } catch {}
-                            try { window.speechSynthesis.cancel(); } catch {}
-                        }, 220);
-                    } catch {
-                        ttsUnlockedRef.current = false;
-                    }
-                };
-                window.addEventListener('pointerdown', unlockBrowserTTS, { passive: true });
-                window.addEventListener('touchstart', unlockBrowserTTS, { passive: true });
-                window.addEventListener('click', unlockBrowserTTS, { passive: true });
+                // v46：手機/平板需在使用者手勢中解鎖 TTS 與 AudioContext。
+                window.addEventListener('pointerdown', unlockBrowserTTSIfNeeded, { passive: true });
+                window.addEventListener('touchstart', unlockBrowserTTSIfNeeded, { passive: true });
+                window.addEventListener('click', unlockBrowserTTSIfNeeded, { passive: true });
                 return () => {
-                    window.removeEventListener('pointerdown', unlockBrowserTTS);
-                    window.removeEventListener('touchstart', unlockBrowserTTS);
-                    window.removeEventListener('click', unlockBrowserTTS);
+                    window.removeEventListener('pointerdown', unlockBrowserTTSIfNeeded);
+                    window.removeEventListener('touchstart', unlockBrowserTTSIfNeeded);
+                    window.removeEventListener('click', unlockBrowserTTSIfNeeded);
                 };
             }, []);
 
@@ -2439,15 +2450,20 @@ class OpenAI {
             useEffect(() => {
                 const greetingText = "Hi，我是 Cora！我是您的 AI 藥師助手。我可以幫您解說藥物成分、適應症與副作用，讓用藥更安心。請問今天有什麼我可以幫您的嗎？";
                 setMessages([{ id: "greeting", role: "assistant", content: greetingText }]);
-                setTimeout(() => speakLocal(greetingText), 1000);
+                // 手機/平板未經手勢解鎖前無法自動朗讀，避免靜默失敗。
+                if (!isMobileLikeDevice()) {
+                    setTimeout(() => speakLocal(greetingText), 1000);
+                }
 
                 // Initialize Speech Recognition
                 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
                 if (SpeechRecognition) {
                     const recognition = new SpeechRecognition();
-                    recognition.continuous = false;
+                    const mobileDevice = isMobileLikeDevice();
+                    recognition.continuous = mobileDevice;
                     recognition.interimResults = true;
                     recognition.lang = 'zh-TW';
+                    recognition.maxAlternatives = 1;
                     recognition.onresult = (event) => {
                         const now = Date.now();
 
@@ -2508,10 +2524,61 @@ class OpenAI {
                     recognition.onend = () => {
                         setIsListening(false);
                         recognitionStartingRef.current = false;
+                        if (!voiceAutoModeRef.current || voiceManualPausedRef.current) return;
+                        if (voiceGenerationLockRef.current || voiceHardPausedForGenerationRef.current) return;
+                        if (sendingRef.current || loadingRef.current || aiSpeechActiveRef.current) return;
+                        if (Date.now() < ignoreRecognitionUntilRef.current) return;
+                        if (window.speechSynthesis?.speaking || window.speechSynthesis?.pending) return;
+                        const delay = mobileDevice ? 220 : 900;
+                        if (voiceRestartTimerRef.current) clearTimeout(voiceRestartTimerRef.current);
+                        voiceRestartTimerRef.current = setTimeout(() => {
+                            voiceRestartTimerRef.current = null;
+                            if (!voiceAutoModeRef.current || voiceManualPausedRef.current) return;
+                            if (voiceGenerationLockRef.current || voiceHardPausedForGenerationRef.current) return;
+                            if (sendingRef.current || loadingRef.current || aiSpeechActiveRef.current) return;
+                            if (Date.now() < ignoreRecognitionUntilRef.current) return;
+                            if (window.speechSynthesis?.speaking || window.speechSynthesis?.pending) return;
+                            const rec = recognitionRef.current;
+                            if (!rec || recognitionStartingRef.current) return;
+                            try {
+                                voiceRecognitionSubmittingRef.current = false;
+                                voiceLiveTranscriptRef.current = "";
+                                recognitionStartingRef.current = true;
+                                rec.start();
+                                setIsListening(true);
+                            } catch (err) {
+                                recognitionStartingRef.current = false;
+                                setIsListening(false);
+                                console.warn("語音辨識自動重啟失敗：", err);
+                            }
+                        }, delay);
                     };
-                    recognition.onerror = () => {
+                    recognition.onerror = (event) => {
                         setIsListening(false);
                         recognitionStartingRef.current = false;
+                        const err = event?.error || "";
+                        if (err === "not-allowed" || err === "service-not-allowed") {
+                            alert("請允許麥克風權限，並建議使用 Safari（iOS）或 Chrome（Android）開啟。");
+                            voiceAutoModeRef.current = false;
+                            setVoiceAutoMode(false);
+                            return;
+                        }
+                        if (voiceAutoModeRef.current && err !== "aborted" && err !== "no-speech") {
+                            const delay = mobileDevice ? 500 : 900;
+                            if (voiceRestartTimerRef.current) clearTimeout(voiceRestartTimerRef.current);
+                            voiceRestartTimerRef.current = setTimeout(() => {
+                                voiceRestartTimerRef.current = null;
+                                const rec = recognitionRef.current;
+                                if (!rec || !voiceAutoModeRef.current || recognitionStartingRef.current) return;
+                                try {
+                                    recognitionStartingRef.current = true;
+                                    rec.start();
+                                    setIsListening(true);
+                                } catch {
+                                    recognitionStartingRef.current = false;
+                                }
+                            }, delay);
+                        }
                     };
                     recognitionRef.current = recognition;
                 }
@@ -2875,10 +2942,7 @@ class OpenAI {
                     return /Safari/i.test(ua) && !/Chrome|CriOS|Chromium|Android|Edg/i.test(ua) && /Apple/i.test(vendor);
                 };
 
-                const isMobileLikeBrowser = () => {
-                    const ua = navigator.userAgent || "";
-                    return /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
-                };
+                const isMobileLikeBrowser = () => isMobileLikeDevice();
 
                 const isDesktopSpeechBrowser = () => {
                     return !isSafariBrowser() && !isMobileLikeBrowser();
@@ -2900,7 +2964,7 @@ class OpenAI {
                     const chunks = [];
                     let buffer = "";
                     for (const part of parts) {
-                        const piece = String(part || "").trim();
+                        const piece = stripPunctuationForSpeech(String(part || ""));
                         if (!piece) continue;
                         if ((buffer + piece).length > 180) {
                             if (buffer) chunks.push(buffer.trim());
@@ -2915,7 +2979,8 @@ class OpenAI {
 
                 const getVoicesReady = async () => {
                     if (!window.speechSynthesis) return [];
-                    for (let i = 0; i < 30; i++) {
+                    const maxTries = isMobileLikeBrowser() ? 50 : 30;
+                    for (let i = 0; i < maxTries; i++) {
                         try { window.speechSynthesis.resume(); } catch {}
                         const voices = window.speechSynthesis.getVoices() || [];
                         if (voices.length) return voices;
@@ -3052,6 +3117,7 @@ class OpenAI {
                 try {
 
                     const currentTtsSession = ++ttsSessionIdRef.current;
+                    unlockBrowserTTSIfNeeded();
                     stopMouth();
                     stopSpeechKeepAlive();
                     if (voiceAutoModeRef.current) {
@@ -3167,6 +3233,7 @@ class OpenAI {
                 }
 
                 try {
+                    unlockBrowserTTSIfNeeded();
                     voiceRecognitionSubmittingRef.current = false;
                     voiceLiveTranscriptRef.current = "";
                     recognitionStartingRef.current = true;
@@ -3176,6 +3243,16 @@ class OpenAI {
                     recognitionStartingRef.current = false;
                     setIsListening(false);
                     console.warn("語音辨識啟動失敗：", err);
+                    if (isMobileLikeDevice()) {
+                        setTimeout(() => {
+                            if (!voiceAutoModeRef.current || recognitionStartingRef.current) return;
+                            try {
+                                recognitionStartingRef.current = true;
+                                recognition.start();
+                                setIsListening(true);
+                            } catch {}
+                        }, 400);
+                    }
                 }
             };
 
@@ -3213,6 +3290,12 @@ class OpenAI {
                     return;
                 }
 
+                if (!recognitionRef.current) {
+                    alert("此瀏覽器不支援語音輸入。請使用 Safari（iPhone/iPad）或 Chrome（Android）開啟。");
+                    return;
+                }
+
+                unlockBrowserTTSIfNeeded();
                 voiceManualPausedRef.current = false;
                 voiceGenerationLockRef.current = false;
                 voiceHardPausedForGenerationRef.current = false;
@@ -3712,7 +3795,7 @@ class OpenAI {
                                     <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" multiple onChange={handleFileChange} className="hidden" />
                                     <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
                                     <input type="text" disabled={loading} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!loading && !sendingRef.current) handleSend(); } }} placeholder="傳訊息給 CORA" className="gpt-text-input" />
-                                    <button onClick={() => handleSend()} disabled={loading || (!input.trim() && stagedImages.length === 0)} className="gpt-send" title="送出"><Icon name="arrow-up" size={18} /></button>
+                                    <button onClick={() => { unlockBrowserTTSIfNeeded(); handleSend(); }} disabled={loading || (!input.trim() && stagedImages.length === 0)} className="gpt-send" title="送出"><Icon name="arrow-up" size={18} /></button>
                                 </div>
                             </div>
                             <div className="cora-disclaimer-row">
