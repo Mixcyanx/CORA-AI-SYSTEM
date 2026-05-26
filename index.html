@@ -250,7 +250,8 @@
                 background: transparent !important;
                 box-shadow: none !important;
                 overflow: visible;
-                pointer-events: none;
+                pointer-events: auto !important;
+                cursor: pointer;
             }
             .cora-floating-avatar > div:last-child {
                 width: 100%;
@@ -258,6 +259,8 @@
                 border-radius: 0 !important;
                 background: transparent !important;
                 overflow: visible !important;
+                pointer-events: auto;
+                cursor: pointer;
             }
             .cora-floating-avatar > div:last-child > div {
                 background: transparent !important;
@@ -2042,12 +2045,22 @@ class OpenAI {
 
         const isIOSPlatform = () => {
             const ua = navigator.userAgent || "";
-            return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+            if (/iPhone|iPod/.test(ua)) return true;
+            if (/iPad/.test(ua)) return true;
+            // iPadOS 13+ 可能偽裝成 Mac；MacBook 觸控板也會讓 maxTouchPoints > 1，需排除精準指標裝置
+            if (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) {
+                return window.matchMedia("(pointer: coarse)").matches && !window.matchMedia("(pointer: fine)").matches;
+            }
+            return false;
         };
 
         const isMobileOrTabletExperience = () => {
-            return window.innerWidth < 1024 || isMobileLikeDevice() || isIOSPlatform();
+            if (isMobileLikeDevice()) return true;
+            if (isIOSPlatform()) return true;
+            return window.innerWidth < 1024;
         };
+
+        const isDesktopExperience = () => !isMobileOrTabletExperience();
 
         const needsStrictTTSGesture = () => isIOSPlatform() || isMobileLikeDevice();
 
@@ -2110,6 +2123,19 @@ class OpenAI {
             ":": 300, "：": 300
         };
 
+        const SPEECH_PAUSE_MS_DESKTOP = {
+            ",": 160, "，": 160,
+            "、": 140,
+            ".": 260, "。": 260, "．": 260,
+            ";": 200, "；": 200,
+            ":": 170, "：": 170
+        };
+
+        const getSpeechPauseMs = (token, desktop = false) => {
+            const table = desktop ? SPEECH_PAUSE_MS_DESKTOP : SPEECH_PAUSE_MS;
+            return table[token] ?? (desktop ? 180 : 350);
+        };
+
         const SPEECH_OTHER_PUNCT_RE = /[！!？?·…—－\-「」『』【】（）()\[\]{}《》〈〉"'""''`\/\\|~@#$%^&*+=<>]/g;
 
         const stripPunctuationForSpeech = (value) => {
@@ -2120,7 +2146,7 @@ class OpenAI {
                 .trim();
         };
 
-        const splitSpeechSegmentsWithPauses = (source, maxChunk = 180) => {
+        const splitSpeechSegmentsWithPauses = (source, maxChunk = 180, desktopPauses = false) => {
             const cleaned = String(source || "").trim();
             if (!cleaned) return [];
 
@@ -2131,7 +2157,7 @@ class OpenAI {
                 if (!token) continue;
                 if (SPEECH_PAUSE_DELIM_RE.test(token)) {
                     const text = stripPunctuationForSpeech(buffer);
-                    if (text) raw.push({ text, pauseAfter: SPEECH_PAUSE_MS[token] ?? 350 });
+                    if (text) raw.push({ text, pauseAfter: getSpeechPauseMs(token, desktopPauses) });
                     buffer = "";
                 } else {
                     buffer += token;
@@ -3221,8 +3247,9 @@ class OpenAI {
                     if (options.mobileGreeting && isMobileLikeBrowser()) {
                         return [{ text: stripPunctuationForSpeech(source), pauseAfter: 0 }];
                     }
+                    const desktopPauses = isDesktopExperience();
                     const maxChunk = isMobileLikeBrowser() ? 110 : 180;
-                    const segments = splitSpeechSegmentsWithPauses(source, maxChunk);
+                    const segments = splitSpeechSegmentsWithPauses(source, maxChunk, desktopPauses);
                     const maxChunks = isMobileLikeBrowser() ? 20 : 14;
                     return segments.slice(0, maxChunks);
                 };
@@ -3462,8 +3489,10 @@ class OpenAI {
                         }
                         if (pauseAfter > 0) {
                             await wait(pauseAfter);
-                        } else {
+                        } else if (!isDesktopExperience()) {
                             await wait(mobileSpeech ? 200 : 120);
+                        } else {
+                            await wait(40);
                         }
                     }
 
@@ -3512,6 +3541,10 @@ class OpenAI {
                     return;
                 }
 
+                if (greetingPlaybackActiveRef.current) {
+                    stopActiveSpeech();
+                    greetingPlaybackActiveRef.current = false;
+                }
                 unlockBrowserTTSIfNeeded({ force: false });
                 speakLocal(pickRandomDesktopFunLine());
             };
