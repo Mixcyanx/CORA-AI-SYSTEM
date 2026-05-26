@@ -2074,18 +2074,43 @@ class OpenAI {
             "感冒季到了，洗手比點我還重要喔。",
             "孕婦、小孩用藥一定要特別小心，我可以幫你整理重點。",
             "有兩種藥一起吃？先讓我看看有沒有交互作用。",
-            "你今天已經很棒了，記得也對自己好一點。"
+            "你今天已經很棒了，記得也對自己好一點。",
+            "又在點我？好吧，這次換我出題：你今天喝水了嗎？",
+            "敲敲敲，有人在嗎？有藥物問題我隨時在。",
+            "我剛剛在背藥典，你一句話我就切回聊天模式。",
+            "別害羞，問錯沒關係；亂吃藥才危險。",
+            "需要我講慢一點嗎？說一聲就行。",
+            "看到你在發呆，提醒你：別忘了飯後藥的時間。",
+            "來玩快問快答：藥名、症狀、或副作用，你選一個！"
         ];
 
-        const SPEECH_PAUSE_DELIM_RE = /[,，.。.;；:：]/;
+        let lastDesktopFunQuoteIndex = -1;
+
+        const pickRandomDesktopFunLine = () => {
+            const pool = CORA_FUN_QUOTES;
+            if (!pool.length) return "";
+            if (pool.length === 1) return pool[0];
+            let idx = Math.floor(Math.random() * pool.length);
+            let guard = 0;
+            while (idx === lastDesktopFunQuoteIndex && guard < 12) {
+                idx = Math.floor(Math.random() * pool.length);
+                guard++;
+            }
+            lastDesktopFunQuoteIndex = idx;
+            return pool[idx];
+        };
+
+        const SPEECH_PAUSE_TOKEN_RE = /[,，、.。.;；:：]/;
+        const SPEECH_PAUSE_DELIM_RE = SPEECH_PAUSE_TOKEN_RE;
         const SPEECH_PAUSE_MS = {
             ",": 340, "，": 340,
+            "、": 280,
             ".": 520, "。": 520, "．": 520,
             ";": 400, "；": 400,
             ":": 300, "：": 300
         };
 
-        const SPEECH_OTHER_PUNCT_RE = /[！!？?、·…—－\-「」『』【】（）()\[\]{}《》〈〉"'""''`\/\\|~@#$%^&*+=<>]/g;
+        const SPEECH_OTHER_PUNCT_RE = /[！!？?·…—－\-「」『』【】（）()\[\]{}《》〈〉"'""''`\/\\|~@#$%^&*+=<>]/g;
 
         const stripPunctuationForSpeech = (value) => {
             return String(value || "")
@@ -2100,7 +2125,7 @@ class OpenAI {
             if (!cleaned) return [];
 
             const raw = [];
-            const tokens = cleaned.split(/([,，.。.;；:：])/);
+            const tokens = cleaned.split(/([,，、.。.;；:：])/);
             let buffer = "";
             for (const token of tokens) {
                 if (!token) continue;
@@ -2118,9 +2143,12 @@ class OpenAI {
             const merged = [];
             for (const seg of raw) {
                 const last = merged[merged.length - 1];
-                if (last && (last.text.length + seg.text.length) <= maxChunk) {
+                const canMerge = last
+                    && !last.pauseAfter
+                    && !seg.pauseAfter
+                    && (last.text.length + seg.text.length + 1) <= maxChunk;
+                if (canMerge) {
                     last.text = `${last.text} ${seg.text}`.trim();
-                    last.pauseAfter = seg.pauseAfter;
                 } else {
                     merged.push({ text: seg.text, pauseAfter: seg.pauseAfter });
                 }
@@ -3422,13 +3450,7 @@ class OpenAI {
                     return;
                 }
 
-                if (greetingSpeakPendingRef.current && !greetingSpokenRef.current) {
-                    playGreetingOnce({ finalize: true });
-                    return;
-                }
-
-                const line = CORA_FUN_QUOTES[Math.floor(Math.random() * CORA_FUN_QUOTES.length)];
-                speakLocal(line);
+                speakLocal(pickRandomDesktopFunLine());
             };
 
             const notifyReply = () => {
@@ -4028,7 +4050,7 @@ class OpenAI {
                             )}
                         </div>
 
-                        <div className="cora-floating-avatar" onClick={handleCharacterClick} role="button" tabIndex={0} aria-label="點擊 Cora 角色" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleCharacterClick(); } }} title="點點 Cora 聊聊天">
+                        <div className="cora-floating-avatar" onClick={handleCharacterClick} role="button" tabIndex={0} aria-label="點擊 Cora 隨機互動" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleCharacterClick(); } }} title="點點 Cora，隨機聊聊天">
                             <div className="cora-floating-avatar-label">CORA</div>
                             <Character2D isTalking={isTalking} audioEnabled={audioEnabled} />
                         </div>
