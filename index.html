@@ -2022,6 +2022,19 @@ class OpenAI {
             return /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
         };
 
+        const isIOSPlatform = () => {
+            const ua = navigator.userAgent || "";
+            return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+        };
+
+        const needsStrictTTSGesture = () => isIOSPlatform() || isMobileLikeDevice();
+
+        const sanitizeUtteranceForMobile = (value) => {
+            return String(value || "")
+                .replace(/</g, "小於")
+                .replace(/>/g, "大於");
+        };
+
         const SPEECH_PUNCT_RE = /[。．.！!？?；;，,、：:·…—－\-「」『』【】（）()\[\]{}《》〈〉"'""''`:：\/\\|~@#$%^&*+=<>]/g;
 
         const stripPunctuationForSpeech = (value) => {
@@ -2186,6 +2199,10 @@ class OpenAI {
             const speechUtteranceRef = useRef(null);
             const speechKeepAliveTimerRef = useRef(null);
             const ttsUnlockedRef = useRef(false);
+            const ttsPrimedAtRef = useRef(0);
+            const greetingSpeakPendingRef = useRef(isMobileLikeDevice());
+            const unlockBrowserTTSRef = useRef(() => {});
+            const speakLocalRef = useRef(null);
             const safariAudioContextRef = useRef(null);
             const ttsSessionIdRef = useRef(0);
             const fileInputRef = useRef(null);
@@ -2227,40 +2244,67 @@ class OpenAI {
             useEffect(() => { personalMemoryEnabledRef.current = personalMemoryEnabled; }, [personalMemoryEnabled]);
             useEffect(() => { voiceAutoModeRef.current = voiceAutoMode; }, [voiceAutoMode]);
 
-            const unlockBrowserTTSIfNeeded = () => {
-                if (!('speechSynthesis' in window)) return;
+            const unlockBrowserTTSIfNeeded = (options = {}) => {
+                const force = options === true || options?.force === true;
+                if (!('speechSynthesis' in window)) return false;
+
+                const synth = window.speechSynthesis;
+                const strictGesture = needsStrictTTSGesture();
+
                 try {
                     const AudioCtx = window.AudioContext || window.webkitAudioContext;
                     if (AudioCtx) {
                         const ctx = safariAudioContextRef.current || new AudioCtx();
                         safariAudioContextRef.current = ctx;
-                        ctx.resume?.();
+                        if (ctx.state === "suspended") {
+                            ctx.resume?.();
+                        }
                         const osc = ctx.createOscillator();
                         const gain = ctx.createGain();
                         gain.gain.value = 0.0001;
                         osc.connect(gain);
                         gain.connect(ctx.destination);
                         osc.start();
-                        osc.stop(ctx.currentTime + 0.03);
+                        osc.stop(ctx.currentTime + 0.05);
                     }
                 } catch {}
-                if (ttsUnlockedRef.current) return;
+
                 try {
-                    const u = new SpeechSynthesisUtterance('\u200B');
-                    u.lang = 'zh-TW';
-                    u.volume = 0.01;
-                    u.rate = 1.2;
+                    synth.getVoices();
+                    synth.resume();
+                } catch {}
+
+                const shouldPrime = force || !ttsUnlockedRef.current || (strictGesture && Date.now() - ttsPrimedAtRef.current > 45000);
+                if (!shouldPrime) return ttsUnlockedRef.current;
+
+                try {
+                    if (!strictGesture) {
+                        try { synth.cancel(); } catch {}
+                    }
+                    const u = new SpeechSynthesisUtterance(" ");
+                    u.lang = "zh-TW";
+                    u.volume = 0;
+                    u.rate = strictGesture ? 10 : 6;
+                    u.pitch = 1;
+                    const voices = synth.getVoices() || [];
+                    const zhVoice = voices.find(v => v.lang === "zh-TW") || voices.find(v => /^zh/i.test(v.lang || ""));
+                    if (zhVoice) u.voice = zhVoice;
                     ttsUnlockedRef.current = true;
-                    window.speechSynthesis.cancel();
-                    window.speechSynthesis.resume();
-                    window.speechSynthesis.speak(u);
-                    setTimeout(() => {
-                        try { window.speechSynthesis.cancel(); } catch {}
-                    }, 180);
+                    ttsPrimedAtRef.current = Date.now();
+                    synth.speak(u);
+                    if (greetingSpeakPendingRef.current && speakLocalRef.current) {
+                        greetingSpeakPendingRef.current = false;
+                        const greetingText = "Hi，我是 Cora！我是您的 AI 藥師助手。我可以幫您解說藥物成分、適應症與副作用，讓用藥更安心。請問今天有什麼我可以幫您的嗎？";
+                        setTimeout(() => speakLocalRef.current?.(greetingText), strictGesture ? 420 : 200);
+                    }
+                    return true;
                 } catch {
                     ttsUnlockedRef.current = false;
+                    return false;
                 }
             };
+
+            unlockBrowserTTSRef.current = unlockBrowserTTSIfNeeded;
 
             useEffect(() => {
                 activeSavedChatIdRef.current = activeSavedChatId;
@@ -2401,14 +2445,15 @@ class OpenAI {
             }, []);
 
             useEffect(() => {
-                // v46：手機/平板需在使用者手勢中解鎖 TTS 與 AudioContext。
-                window.addEventListener('pointerdown', unlockBrowserTTSIfNeeded, { passive: true });
-                window.addEventListener('touchstart', unlockBrowserTTSIfNeeded, { passive: true });
-                window.addEventListener('click', unlockBrowserTTSIfNeeded, { passive: true });
+                // v47：手機/平板須在使用者手勢中建立 TTS 信任工作階段（靜音極短 utterance）。
+                const onGesture = () => unlockBrowserTTSRef.current?.();
+                window.addEventListener('pointerdown', onGesture, { passive: true });
+                window.addEventListener('touchstart', onGesture, { passive: true });
+                window.addEventListener('click', onGesture, { passive: true });
                 return () => {
-                    window.removeEventListener('pointerdown', unlockBrowserTTSIfNeeded);
-                    window.removeEventListener('touchstart', unlockBrowserTTSIfNeeded);
-                    window.removeEventListener('click', unlockBrowserTTSIfNeeded);
+                    window.removeEventListener('pointerdown', onGesture);
+                    window.removeEventListener('touchstart', onGesture);
+                    window.removeEventListener('click', onGesture);
                 };
             }, []);
 
@@ -2949,24 +2994,28 @@ class OpenAI {
                 };
 
                 const cleanSpeechText = (value) => {
-                    return String(value || "")
-                        .replace(/```[\s\S]*?```/g, "")
-                        .replace(/[#>*_`\[\](){}]/g, "")
-                        .replace(/https?:\/\/\S+/g, "")
-                        .replace(/\s+/g, " ")
-                        .trim();
+                    return sanitizeUtteranceForMobile(
+                        String(value || "")
+                            .replace(/```[\s\S]*?```/g, "")
+                            .replace(/[#>*_`\[\](){}]/g, "")
+                            .replace(/https?:\/\/\S+/g, "")
+                            .replace(/\s+/g, " ")
+                            .trim()
+                    );
                 };
 
                 const splitSpeechText = (value) => {
                     const source = cleanSpeechText(value);
                     if (!source) return [];
-                    const parts = source.match(/[^。！？!?；;，,\n]{1,120}[。！？!?；;，,\n]?/g) || [source];
+                    const maxClause = isMobileLikeBrowser() ? 72 : 120;
+                    const maxChunk = isMobileLikeBrowser() ? 110 : 180;
+                    const parts = source.match(new RegExp(`[^。！？!?；;，,\\n]{1,${maxClause}}[。！？!?；;，,\\n]?`, "g")) || [source];
                     const chunks = [];
                     let buffer = "";
                     for (const part of parts) {
                         const piece = stripPunctuationForSpeech(String(part || ""));
                         if (!piece) continue;
-                        if ((buffer + piece).length > 180) {
+                        if ((buffer + piece).length > maxChunk) {
                             if (buffer) chunks.push(buffer.trim());
                             buffer = piece;
                         } else {
@@ -2974,7 +3023,8 @@ class OpenAI {
                         }
                     }
                     if (buffer.trim()) chunks.push(buffer.trim());
-                    return chunks.slice(0, 12);
+                    const maxChunks = isMobileLikeBrowser() ? 16 : 12;
+                    return chunks.slice(0, maxChunks);
                 };
 
                 const getVoicesReady = async () => {
@@ -3002,8 +3052,10 @@ class OpenAI {
                 const speakOneChunk = async (chunk, preferredVoice) => {
                     const synth = window.speechSynthesis;
                     if (!synth || !chunk) return false;
+                    const mobileSpeech = isMobileLikeBrowser();
+                    const maxAttempts = mobileSpeech ? 10 : 8;
 
-                    for (let attempt = 1; attempt <= 8; attempt++) {
+                    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
                         let started = false;
                         let finished = false;
                         let forceStartedTimer = null;
@@ -3013,7 +3065,9 @@ class OpenAI {
 
                         const ok = await new Promise(async (resolve) => {
                             const utterance = new SpeechSynthesisUtterance(chunk);
-                            const voiceForAttempt = attempt <= 4 ? preferredVoice : null;
+                            const voiceForAttempt = mobileSpeech
+                                ? (attempt <= 2 ? preferredVoice : null)
+                                : (attempt <= 4 ? preferredVoice : null);
                             const speakStartedAt = Date.now();
                             speechUtteranceRef.current = utterance;
                             utterance.lang = voiceForAttempt?.lang || (attempt % 2 ? "zh-TW" : "zh-Hant-TW");
@@ -3065,12 +3119,27 @@ class OpenAI {
                                 }
                             };
                             utterance.onend = () => finish(started || (Date.now() - speakStartedAt > 500));
-                            utterance.onerror = () => finish(false);
+                            utterance.onerror = (event) => {
+                                const err = event?.error || "";
+                                if (started && (err === "interrupted" || err === "canceled")) {
+                                    finish(true);
+                                    return;
+                                }
+                                finish(false);
+                            };
 
                             try {
-                                // 先清空舊佇列，再等待一小段時間，避免 Safari / Chrome WebView 吃掉第一句。
-                                try { synth.cancel(); } catch {}
-                                await wait(isSafariBrowser() ? (attempt === 1 ? 180 : 260) : (isDesktopSpeechBrowser() ? (attempt === 1 ? 20 : 80) : (attempt === 1 ? 90 : 180)));
+                                // v47：iOS 在 cancel 後立即 speak 常靜默失敗；手機僅在重試時清空佇列。
+                                if (!mobileSpeech || attempt > 1) {
+                                    try { synth.cancel(); } catch {}
+                                }
+                                await wait(
+                                    isSafariBrowser()
+                                        ? (attempt === 1 ? 220 : 300)
+                                        : (isDesktopSpeechBrowser()
+                                            ? (attempt === 1 ? 20 : 80)
+                                            : (attempt === 1 ? 140 : 220))
+                                );
                                 try { synth.resume(); } catch {}
 
                                 stopSpeechKeepAlive();
@@ -3117,7 +3186,8 @@ class OpenAI {
                 try {
 
                     const currentTtsSession = ++ttsSessionIdRef.current;
-                    unlockBrowserTTSIfNeeded();
+                    const mobileSpeech = isMobileLikeBrowser();
+                    unlockBrowserTTSIfNeeded({ force: mobileSpeech });
                     stopMouth();
                     stopSpeechKeepAlive();
                     if (voiceAutoModeRef.current) {
@@ -3126,7 +3196,11 @@ class OpenAI {
                     aiSpeechActiveRef.current = true;
                     ignoreRecognitionUntilRef.current = Date.now() + 120000;
 
-                    try { window.speechSynthesis?.cancel(); } catch {}
+                    if (!mobileSpeech) {
+                        try { window.speechSynthesis?.cancel(); } catch {}
+                    } else {
+                        try { window.speechSynthesis?.resume(); } catch {}
+                    }
 
                     if (ttsAudioRef.current) {
                         ttsAudioRef.current.pause();
@@ -3157,14 +3231,22 @@ class OpenAI {
                     const voices = await getVoicesReady();
                     const preferredVoice = pickVoice(voices);
 
-                    for (const chunk of chunks) {
+                    for (let ci = 0; ci < chunks.length; ci++) {
+                        const chunk = chunks[ci];
                         if (!audioEnabled || currentTtsSession !== ttsSessionIdRef.current) break;
-                        const spoken = await speakOneChunk(chunk, preferredVoice);
+                        if (mobileSpeech && ci > 0) {
+                            await wait(isSafariBrowser() ? 280 : 180);
+                        }
+                        let spoken = await speakOneChunk(chunk, preferredVoice);
+                        if (!spoken && mobileSpeech) {
+                            unlockBrowserTTSIfNeeded({ force: true });
+                            await wait(260);
+                            spoken = await speakOneChunk(chunk, null);
+                        }
                         if (!spoken) {
-                            // 最後保底：即使瀏覽器阻擋 TTS，也不要讓嘴巴/語音狀態卡住。
                             console.warn("瀏覽器 TTS 本段未成功播放：", chunk.slice(0, 30));
                         }
-                        await wait(120);
+                        await wait(mobileSpeech ? 200 : 120);
                     }
 
                 } catch (err) {
@@ -3179,6 +3261,8 @@ class OpenAI {
                     forceCloseMouthNow();
                 }
             };
+
+            speakLocalRef.current = speakLocal;
 
             const notifyReply = () => {
                 // Android 通常可用；iPhone Safari 對震動 API 支援較有限，PWA 或部分瀏覽器可能有效。
@@ -3233,7 +3317,7 @@ class OpenAI {
                 }
 
                 try {
-                    unlockBrowserTTSIfNeeded();
+                    unlockBrowserTTSIfNeeded({ force: true });
                     voiceRecognitionSubmittingRef.current = false;
                     voiceLiveTranscriptRef.current = "";
                     recognitionStartingRef.current = true;
@@ -3295,7 +3379,7 @@ class OpenAI {
                     return;
                 }
 
-                unlockBrowserTTSIfNeeded();
+                unlockBrowserTTSIfNeeded({ force: true });
                 voiceManualPausedRef.current = false;
                 voiceGenerationLockRef.current = false;
                 voiceHardPausedForGenerationRef.current = false;
@@ -3338,6 +3422,10 @@ class OpenAI {
                 const sendNow = Date.now();
                 if (lastRequestKeyRef.current.key === sendKey && sendNow - lastRequestKeyRef.current.at < 12000) return;
                 lastRequestKeyRef.current = { key: sendKey, at: sendNow };
+
+                if (audioEnabled) {
+                    unlockBrowserTTSIfNeeded({ force: needsStrictTTSGesture() });
+                }
 
                 sendingRef.current = true;
                 const wasVoiceAutoMode = !!voiceAutoModeRef.current;
@@ -3706,7 +3794,9 @@ class OpenAI {
                                 <button onClick={() => {
                                     const nextAudio = !audioEnabled;
                                     setAudioEnabled(nextAudio);
-                                    if (!nextAudio) {
+                                    if (nextAudio) {
+                                        unlockBrowserTTSIfNeeded({ force: true });
+                                    } else {
                                         window.speechSynthesis?.cancel();
                                         if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
                                         if (ttsAudioRef.current) { ttsAudioRef.current.pause(); ttsAudioRef.current = null; }
@@ -3794,8 +3884,8 @@ class OpenAI {
                                     <button onClick={() => fileInputRef.current?.click()} className="gpt-icon-btn" title="上傳圖片"><Icon name="image" size={20} /></button>
                                     <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" multiple onChange={handleFileChange} className="hidden" />
                                     <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
-                                    <input type="text" disabled={loading} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!loading && !sendingRef.current) handleSend(); } }} placeholder="傳訊息給 CORA" className="gpt-text-input" />
-                                    <button onClick={() => { unlockBrowserTTSIfNeeded(); handleSend(); }} disabled={loading || (!input.trim() && stagedImages.length === 0)} className="gpt-send" title="送出"><Icon name="arrow-up" size={18} /></button>
+                                    <input type="text" disabled={loading} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!loading && !sendingRef.current) { unlockBrowserTTSIfNeeded({ force: needsStrictTTSGesture() }); handleSend(); } } }} placeholder="傳訊息給 CORA" className="gpt-text-input" />
+                                    <button onClick={() => { unlockBrowserTTSIfNeeded({ force: needsStrictTTSGesture() }); handleSend(); }} disabled={loading || (!input.trim() && stagedImages.length === 0)} className="gpt-send" title="送出"><Icon name="arrow-up" size={18} /></button>
                                 </div>
                             </div>
                             <div className="cora-disclaimer-row">
