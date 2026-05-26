@@ -2030,7 +2030,8 @@ class OpenAI {
             for (const msg of list) {
                 if (msg?.role !== "user") continue;
                 if (!String(msg?.content || "").trim()) continue;
-                const parsed = parseChatTimestamp(msg.timestamp || msg.createdAt || 0);
+                const idTs = typeof msg.id === "string" && /^\d{10,}$/.test(msg.id) ? Number(msg.id) : 0;
+                const parsed = parseChatTimestamp(msg.timestamp || msg.createdAt || idTs || 0);
                 if (parsed > latest) latest = parsed;
             }
             return latest > 0 ? latest : undefined;
@@ -2052,9 +2053,6 @@ class OpenAI {
         const getChatTime = (chat) => {
             const userAt = chat?.lastUserMessageAt || inferLastUserMessageAt(chat);
             if (userAt) return parseChatTimestamp(userAt);
-            if (chatHasUserInteraction(chat)) {
-                return parseChatTimestamp(chat?.updatedAt || chat?.modifiedAt || chat?.createdAt || chat?.timestamp);
-            }
             return parseChatTimestamp(chat?.createdAt || chat?.timestamp);
         };
 
@@ -3022,16 +3020,27 @@ class OpenAI {
                 setSavedChats(prev => {
                     const base = (prev || []).filter(item => item.id !== replaceId);
                     const old = base.find(item => item.id === chatId) || {};
-                    const nextChat = {
-                        ...old,
-                        ...patch,
-                        id: chatId,
-                        updatedAt: patch.updatedAt ?? now
-                    };
+                    const exists = base.some(item => item.id === chatId);
+                    const merged = { ...old, ...patch, id: chatId };
+
                     if (bumpUserActivity) {
-                        nextChat.lastUserMessageAt = now;
+                        merged.lastUserMessageAt = now;
+                        merged.updatedAt = now;
+                    } else {
+                        merged.lastUserMessageAt = patch.lastUserMessageAt ?? old.lastUserMessageAt ?? inferLastUserMessageAt(merged);
+                        if (patch.updatedAt === undefined) merged.updatedAt = old.updatedAt;
                     }
-                    const next = cleanupEmptyChats(upsertChat(base, nextChat), chatId);
+
+                    let next;
+                    if (bumpUserActivity) {
+                        next = upsertChat(base, merged);
+                    } else if (exists) {
+                        next = base.map(item => (item.id === chatId ? merged : item));
+                    } else {
+                        next = sortChatsNewestFirst([...base, merged]);
+                    }
+
+                    next = cleanupEmptyChats(next, chatId);
                     const locals = next.filter(item => String(item.id).startsWith("local-") && !isEmptyConversation(item));
                     writeLocalChats(locals);
                     return next;
@@ -3053,9 +3062,10 @@ class OpenAI {
                     const conversation = data.conversation || chat;
 
                     const loadedId = conversation.id || chat.id;
-                    const lastUserAt = inferLastUserMessageAt(conversation);
+                    const lastUserAt = conversation.lastUserMessageAt || inferLastUserMessageAt(conversation);
+                    const { lastAccessedAt: _dropAccessed, ...conversationWithoutAccess } = conversation || {};
                     saveChatRecord(loadedId, {
-                        ...conversation,
+                        ...conversationWithoutAccess,
                         ...(lastUserAt ? { lastUserMessageAt: lastUserAt } : {})
                     }, { bumpUserActivity: false });
                     setMessages(conversation.messages || []);
