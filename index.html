@@ -458,6 +458,28 @@
             .gpt-chat { padding-bottom: 360px !important; }
         }
 
+        /* vXX small-phone layout: keep composer buttons aligned on very narrow screens */
+        @media (max-width: 390px) {
+            .gpt-composer-wrap {
+                padding: 10px 10px 14px;
+            }
+            .gpt-composer {
+                padding: 4px 6px;
+            }
+            .gpt-input-row {
+                gap: 4px;
+            }
+            .gpt-input-row .gpt-icon-btn {
+                width: 30px;
+                height: 30px;
+            }
+            .gpt-send {
+                width: 30px;
+                height: 30px;
+                flex: 0 0 30px;
+            }
+        }
+
 
         /* v9 fixes: persistent mobile avatar and responsive desktop chat area */
         @media (min-width: 1024px) {
