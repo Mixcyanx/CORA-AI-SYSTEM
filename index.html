@@ -174,6 +174,10 @@
         .gpt-send { width:34px; height:34px; flex:0 0 34px; border:0; border-radius:50%; background:var(--gpt-text); color:var(--gpt-bg); display:flex; align-items:center; justify-content:center; cursor:pointer; }
         .gpt-send:disabled { opacity:.35; cursor:not-allowed; }
         .gpt-disclaimer { max-width:760px; margin:8px auto 0; text-align:center; color:var(--gpt-muted); font-size:11px; }
+        .cora-disclaimer-break { display: inline; }
+        @media (max-width: 480px) {
+            .cora-disclaimer-break { display: block; }
+        }
         .gpt-card { max-width:760px; margin: 14px auto 0; border:1px solid var(--gpt-border); background:var(--gpt-surface); border-radius:18px; overflow:hidden; }
         .gpt-card-head { padding:14px 16px; border-bottom:1px solid var(--gpt-border); display:flex; align-items:center; justify-content:space-between; gap:12px; }
         .gpt-card-grid { padding:16px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
@@ -4251,7 +4255,10 @@ class OpenAI {
                                 </div>
                             </div>
                             <div className="cora-disclaimer-row">
-                                <div className="gpt-disclaimer">CORA 可能會出錯。本系統僅供衛教參考，實際用藥請務必諮詢醫師或藥師。</div>
+                                <div className="gpt-disclaimer">
+                                    CORA 可能會出錯。本系統僅供衛教參考
+                                    <span className="cora-disclaimer-break">，實際用藥請務必諮詢醫師或藥師。</span>
+                                </div>
                                 <div className="cora-legal-links cora-legal-links-desktop" aria-label="CORA legal links">
                                     <a href="https://mixcyanx.github.io/CORA-AI-SYSTEM/privacy.html" target="_blank" rel="noopener noreferrer">隱私權政策</a>
                                     <span className="cora-legal-dot">•</span>
