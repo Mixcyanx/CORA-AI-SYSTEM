@@ -433,12 +433,28 @@
             max-height: 380px;
             object-fit: contain;
         }
+        .gpt-images.multi-image {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+            width: 100%;
+            max-width: min(520px, 100%);
+        }
         .gpt-images.multi-image .gpt-image-thumb {
-            width: auto;
+            width: 100%;
+            max-width: none;
             height: auto;
-            max-width: 150px;
-            max-height: 150px;
-            object-fit: contain;
+            max-height: 168px;
+            min-height: 96px;
+            object-fit: cover;
+            aspect-ratio: 1 / 1;
+        }
+        .gpt-drug-image-label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--gpt-muted);
+            margin-bottom: 8px;
         }
         .gpt-card-in-chat { display: block; }
         .gpt-card-under-input { display: none; }
@@ -446,7 +462,11 @@
             .gpt-user-bubble { max-width: min(86%, 360px); }
             .gpt-bubble.gpt-has-images { max-width: min(88%, 360px); }
             .gpt-images.single-image .gpt-image-thumb { max-width: min(280px, 72vw); max-height: 300px; }
-            .gpt-images.multi-image .gpt-image-thumb { max-width: 118px; max-height: 118px; }
+            .gpt-images.multi-image {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                max-width: min(320px, 100%);
+            }
+            .gpt-images.multi-image .gpt-image-thumb { max-height: 132px; min-height: 88px; }
             .gpt-card-in-chat { display: none !important; }
             .gpt-card-under-input { display: block; margin-top: 10px; }
             .gpt-card-under-input .gpt-card { margin: 0 auto; max-height: 38vh; overflow-y: auto; border-radius: 18px; }
@@ -2004,7 +2024,7 @@ class OpenAI {
             body: JSON.stringify(payload)
         });
         const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || "Worker API Error");
+        if (!response.ok) throw new Error(data.response || data.error || "Worker API Error");
         return data;
     }
 
@@ -3907,12 +3927,17 @@ class OpenAI {
                     info.indications = toArray(info.indications);
                     info.side_effects = toArray(info.side_effects);
                     info.warnings = toArray(info.warnings);
-                    const generatedImages = response.generatedImages || response.images || [];
+                    const generatedImages = response.generatedImages || [];
+                    const drugImages = response.drugImages || response.drugReferenceImages || [];
+                    const chatImages = [...drugImages, ...(response.images || []), ...generatedImages]
+                        .filter((url, index, list) => url && list.indexOf(url) === index)
+                        .slice(0, 8);
                     const assistantMessage = {
                         id: (Date.now() + 1).toString(),
                         role: "assistant",
                         content: info.answer,
-                        images: generatedImages,
+                        images: chatImages,
+                        drugImages: drugImages,
                         medicationInfo: info
                     };
 
@@ -3944,7 +3969,7 @@ class OpenAI {
                 } catch (err) {
                     console.error(err);
                     setIsTalking(false);
-                    const errorText = "抱歉，可能因為網路不穩定或 API 暫時中斷，這次訊息沒有成功生成。請確認網路後再試一次。";
+                    const errorText = String(err?.message || "").trim() || "抱歉，可能因為網路不穩定或 API 暫時中斷，這次訊息沒有成功生成。請確認網路後再試一次。";
                     setMessages(prev => [...prev, { id: Date.now().toString(), role: "assistant", content: errorText }]);
                     notifyReply();
                     voiceLastAssistantTextRef.current = errorText;
@@ -4190,9 +4215,24 @@ class OpenAI {
                                             onClick={(e) => e.stopPropagation()}
                                         >
                                             {msg.images && msg.images.length > 0 && (
-                                                <div className={`gpt-images ${msg.images.length === 1 ? "single-image" : "multi-image"}`}>
-                                                    {msg.images.map((img, idx) => <img key={idx} src={img} onClick={() => setPreviewImage(img)} className="gpt-image-thumb" />)}
-                                                </div>
+                                                <>
+                                                    {msg.role === "assistant" && msg.drugImages?.length > 0 && (
+                                                        <span className="gpt-drug-image-label">藥物參考圖片</span>
+                                                    )}
+                                                    <div className={`gpt-images ${msg.images.length === 1 ? "single-image" : "multi-image"}`}>
+                                                        {msg.images.map((img, idx) => (
+                                                            <img
+                                                                key={idx}
+                                                                src={img}
+                                                                alt={msg.role === "assistant" ? "藥物參考圖片" : "上傳圖片"}
+                                                                loading="lazy"
+                                                                referrerPolicy="no-referrer"
+                                                                onClick={() => setPreviewImage(img)}
+                                                                className="gpt-image-thumb"
+                                                            />
+                                                        ))}
+                                                    </div>
+                                                </>
                                             )}
                                             {msg.content && <span className="gpt-message-text">{msg.content}</span>}
                                         </div>
