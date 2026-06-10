@@ -1193,7 +1193,7 @@
         }
 
         
-        /* v26: TTS uses browser only; medication card keeps independent scroll even while speech is playing. */
+        /* v26/v28: medication card scroll must work during TTS; avoid blocking touch on mobile. */
         .gpt-card-under-input,
         .gpt-card-under-input .gpt-card,
         .gpt-card-under-input .gpt-card-grid,
@@ -1202,6 +1202,25 @@
         .gpt-card-in-chat .gpt-card-grid {
             pointer-events: auto !important;
             touch-action: pan-y !important;
+        }
+        @media (max-width: 1023px) {
+            .gpt-composer-wrap {
+                -webkit-overflow-scrolling: touch !important;
+                overscroll-behavior: contain;
+                touch-action: pan-y !important;
+            }
+            .gpt-card-under-input .gpt-card,
+            .gpt-card-in-chat .gpt-card {
+                isolation: isolate;
+                contain: layout paint;
+            }
+            .gpt-card-under-input .gpt-card-grid,
+            .gpt-card-in-chat .gpt-card-grid {
+                max-height: min(28vh, 220px);
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+                overscroll-behavior: contain;
+            }
         }
 
 
@@ -2394,15 +2413,36 @@ class OpenAI {
             });
         };
 
-        const Character2D = ({ isTalking, audioEnabled, onHitClick }) => {
+        let avatarMouthMode = false;
+        const avatarMouthSubscribers = new Set();
+
+        const subscribeAvatarMouth = (listener) => {
+            avatarMouthSubscribers.add(listener);
+            listener(avatarMouthMode);
+            return () => avatarMouthSubscribers.delete(listener);
+        };
+
+        const setAvatarMouthMode = (mode) => {
+            const next = (!mode || mode === "rest") ? false : mode;
+            if (avatarMouthMode === next) return;
+            avatarMouthMode = next;
+            avatarMouthSubscribers.forEach((listener) => {
+                try { listener(avatarMouthMode); } catch {}
+            });
+        };
+
+        const Character2D = ({ audioEnabled, onHitClick }) => {
             const [blink, setBlink] = useState(false);
+            const [mouthMode, setMouthMode] = useState(false);
             const baseImgRef = useRef(null);
-            const mouthActive = Boolean(isTalking) && audioEnabled;
-            const mouthMode = isTalking === "small" ? "small" : (isTalking === "o" ? "o" : (isTalking === "open" || isTalking === true ? "open" : "rest"));
+            const mouthActive = Boolean(mouthMode) && audioEnabled;
+            const mouthShape = mouthMode === "small" ? "small" : (mouthMode === "o" ? "o" : (mouthMode === "open" || mouthMode === true ? "open" : "rest"));
 
             useEffect(() => {
                 ensureAvatarHitMap(AVATAR_BASE_URL);
             }, []);
+
+            useEffect(() => subscribeAvatarMouth(setMouthMode), []);
 
             useEffect(() => {
                 const interval = setInterval(() => {
@@ -2477,8 +2517,8 @@ class OpenAI {
 
                             {mouthActive && (
                                 <img
-                                    key={`mouth-${mouthMode}`}
-                                    src={mouthMode === "small" ? avatarMouthOpenSmall : (mouthMode === "o" ? avatarMouthO : avatarMouthOpen)}
+                                    key={`mouth-${mouthShape}`}
+                                    src={mouthShape === "small" ? avatarMouthOpenSmall : (mouthShape === "o" ? avatarMouthO : avatarMouthOpen)}
                                     alt=""
                                     className="absolute inset-0 w-full h-full object-contain select-none pointer-events-none"
                                     style={{ opacity: 1 }}
@@ -2509,7 +2549,6 @@ class OpenAI {
             const [loading, setLoading] = useState(false);
             const [imageGenerating, setImageGenerating] = useState(false);
             const [copyMenu, setCopyMenu] = useState(null);
-            const [isTalking, setIsTalking] = useState(false);
             const [audioEnabled, setAudioEnabled] = useState(true);
             const [personalMemoryEnabled, setPersonalMemoryEnabled] = useState(() => localStorage.getItem('CORA_PERSONAL_MEMORY_MODE') !== 'off');
             const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
@@ -2898,7 +2937,7 @@ class OpenAI {
                         mouthTimerRef.current = null;
                     }
 
-                    setIsTalking(false);
+                    setAvatarMouthMode(false);
                 }
             }, [audioEnabled]);
 
@@ -3339,7 +3378,7 @@ class OpenAI {
                     const nextValue = nextMode === "rest" ? false : nextMode;
                     if (mouthLastStateRef.current !== nextMode) {
                         mouthLastStateRef.current = nextMode;
-                        setIsTalking(nextValue);
+                        setAvatarMouthMode(nextValue);
                     }
                 };
 
@@ -3423,10 +3462,8 @@ class OpenAI {
 
                 const forceCloseMouthNow = () => {
                     stopMouth();
-                    setIsTalking(false);
-                    requestAnimationFrame(() => setIsTalking(false));
-                    setTimeout(() => setIsTalking(false), 40);
-                    setTimeout(() => setIsTalking(false), 120);
+                    mouthLastStateRef.current = "rest";
+                    setAvatarMouthMode(false);
                 };
 
                 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -4083,7 +4120,7 @@ class OpenAI {
                     shouldResumeVoiceAfterResponse = shouldResumeVoiceAfterResponse && !voiceManualPausedRef.current;
                 } catch (err) {
                     console.error(err);
-                    setIsTalking(false);
+                    setAvatarMouthMode(false);
                     const errorText = String(err?.message || "").trim() || "抱歉，可能因為網路不穩定或 API 暫時中斷，這次訊息沒有成功生成。請確認網路後再試一次。";
                     setMessages(prev => [...prev, { id: Date.now().toString(), role: "assistant", content: errorText }]);
                     notifyReply();
@@ -4144,7 +4181,7 @@ class OpenAI {
                     { key: "warnings", icon: "badge-alert", title: "禁忌與注意事項", items: medicationInfo.warnings }
                 ].filter((section) => Array.isArray(section.items) && section.items.length > 0);
                 return (
-                    <div className={`gpt-card ${cardCollapsed ? "collapsed" : ""}`} onWheel={(e) => e.stopPropagation()} onTouchMove={(e) => e.stopPropagation()}>
+                    <div className={`gpt-card ${cardCollapsed ? "collapsed" : ""}`}>
                         <div className="gpt-card-head">
                             <button
                                 type="button"
@@ -4315,7 +4352,7 @@ class OpenAI {
                                         if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
                                         if (ttsAudioRef.current) { ttsAudioRef.current.pause(); ttsAudioRef.current = null; }
                                         if (mouthTimerRef.current) { clearInterval(mouthTimerRef.current); mouthTimerRef.current = null; }
-                                        setIsTalking(false);
+                                        setAvatarMouthMode(false);
                                     }
                                 }} className="gpt-icon-btn" title="語音開關"><Icon name={audioEnabled ? "volume-2" : "volume-x"} size={20} /></button>
                             </div>
@@ -4379,7 +4416,7 @@ class OpenAI {
 
                             <div className="cora-mobile-avatar-message">
                                 <div className="cora-mobile-avatar-box" role="button" tabIndex={0} aria-label="點擊 Cora 角色" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleCharacterClick(); } }}>
-                                    <Character2D isTalking={isTalking} audioEnabled={audioEnabled} onHitClick={handleCharacterClick} />
+                                    <Character2D audioEnabled={audioEnabled} onHitClick={handleCharacterClick} />
                                 </div>
                             </div>
 
@@ -4392,7 +4429,7 @@ class OpenAI {
 
                         <div className="cora-floating-avatar" role="button" tabIndex={0} aria-label="點擊 Cora 隨機互動" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleCharacterClick(); } }} title="點點 Cora 角色，隨機聊聊天">
                             <div className="cora-floating-avatar-label">CORA</div>
-                            <Character2D isTalking={isTalking} audioEnabled={audioEnabled} onHitClick={handleCharacterClick} />
+                            <Character2D audioEnabled={audioEnabled} onHitClick={handleCharacterClick} />
                         </div>
 
                         <div className="gpt-composer-wrap">
