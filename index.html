@@ -213,8 +213,8 @@
         .cora-history-drawer { display:none; }
 
         .cora-floating-avatar { position:absolute; right:28px; bottom:112px; width:196px; height:250px; border:1px solid var(--gpt-border); border-radius:28px; background:var(--gpt-surface); box-shadow:0 18px 46px rgba(0,0,0,.18); overflow:visible; z-index:4; }
-        .cora-floating-avatar > div:last-child { width:100%; height:100%; border-radius:28px; overflow:hidden; cursor:pointer; }
-        .cora-floating-avatar[role="button"] { cursor:pointer; }
+        .cora-floating-avatar > div:last-child { width:100%; height:100%; border-radius:28px; overflow:hidden; cursor:default; }
+        .cora-floating-avatar[role="button"] { cursor:default; }
         .cora-floating-avatar-label {
     display: none !important;
 }
@@ -2316,10 +2316,93 @@ class OpenAI {
 
         // --- Components ---
 
-        const Character2D = ({ isTalking, audioEnabled }) => {
+        const AVATAR_BASE_URL = "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Avatar.png";
+        const avatarHitMapPromiseCache = new Map();
+        let avatarHitMapReady = null;
+
+        const ensureAvatarHitMap = (url) => {
+            if (avatarHitMapPromiseCache.has(url)) {
+                return avatarHitMapPromiseCache.get(url);
+            }
+            const promise = new Promise((resolve) => {
+                const img = new Image();
+                img.crossOrigin = "anonymous";
+                img.onload = () => {
+                    try {
+                        const canvas = document.createElement("canvas");
+                        canvas.width = img.naturalWidth;
+                        canvas.height = img.naturalHeight;
+                        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+                        ctx.drawImage(img, 0, 0);
+                        const map = {
+                            width: img.naturalWidth,
+                            height: img.naturalHeight,
+                            data: ctx.getImageData(0, 0, img.naturalWidth, img.naturalHeight).data
+                        };
+                        avatarHitMapReady = map;
+                        resolve(map);
+                    } catch {
+                        avatarHitMapReady = null;
+                        resolve(null);
+                    }
+                };
+                img.onerror = () => {
+                    avatarHitMapReady = null;
+                    resolve(null);
+                };
+                img.src = url;
+            });
+            avatarHitMapPromiseCache.set(url, promise);
+            return promise;
+        };
+
+        const getObjectContainPoint = (imgEl, clientX, clientY) => {
+            if (!imgEl) return null;
+            const rect = imgEl.getBoundingClientRect();
+            const naturalW = imgEl.naturalWidth || 1;
+            const naturalH = imgEl.naturalHeight || 1;
+            const scale = Math.min(rect.width / naturalW, rect.height / naturalH);
+            const renderedW = naturalW * scale;
+            const renderedH = naturalH * scale;
+            const offsetX = rect.left + (rect.width - renderedW) / 2;
+            const offsetY = rect.top + (rect.height - renderedH) / 2;
+            const localX = clientX - offsetX;
+            const localY = clientY - offsetY;
+            if (localX < 0 || localY < 0 || localX > renderedW || localY > renderedH) return null;
+            return {
+                x: Math.min(naturalW - 1, Math.max(0, Math.floor((localX / renderedW) * naturalW))),
+                y: Math.min(naturalH - 1, Math.max(0, Math.floor((localY / renderedH) * naturalH)))
+            };
+        };
+
+        const isAvatarPixelHit = (clientX, clientY, imgEl, hitMap = avatarHitMapReady) => {
+            const point = getObjectContainPoint(imgEl, clientX, clientY);
+            if (!point) return false;
+            if (!hitMap?.data) return false;
+            const index = (point.y * hitMap.width + point.x) * 4;
+            return hitMap.data[index + 3] > 48;
+        };
+
+        const hasMedicationCardData = (info) => {
+            if (!info || typeof info !== "object") return false;
+            const fields = ["ingredients", "indications", "side_effects", "warnings"];
+            return fields.some((field) => {
+                const value = info[field];
+                if (!value) return false;
+                if (Array.isArray(value)) return value.some((item) => String(item || "").trim());
+                return String(value).trim().length > 0;
+            });
+        };
+
+        const Character2D = ({ isTalking, audioEnabled, onHitClick }) => {
             const [blink, setBlink] = useState(false);
+            const baseImgRef = useRef(null);
             const mouthActive = Boolean(isTalking) && audioEnabled;
             const mouthMode = isTalking === "small" ? "small" : (isTalking === "o" ? "o" : (isTalking === "open" || isTalking === true ? "open" : "rest"));
+
+            useEffect(() => {
+                ensureAvatarHitMap(AVATAR_BASE_URL);
+            }, []);
 
             useEffect(() => {
                 const interval = setInterval(() => {
@@ -2329,14 +2412,39 @@ class OpenAI {
                 return () => clearInterval(interval);
             }, []);
 
-            const avatarBase = "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Avatar.png";
+            const handleAvatarPointer = async (event) => {
+                if (!onHitClick) return;
+                const imgEl = baseImgRef.current;
+                if (!imgEl) return;
+                await ensureAvatarHitMap(AVATAR_BASE_URL);
+                if (!isAvatarPixelHit(event.clientX, event.clientY, imgEl)) return;
+                event.stopPropagation();
+                onHitClick(event);
+            };
+
+            const avatarBase = AVATAR_BASE_URL;
             const avatarEyeClose = "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Avatar_Eye_Close.png";
             const avatarMouthOpen = "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Avatar_Mouth_Open.png";
             const avatarMouthOpenSmall = "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Avatar_Mouth_Open_Small.png";
             const avatarMouthO = "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/refs/heads/main/Avatar_Mouth_O.png";
 
             return (
-                <div className="relative w-full h-full flex items-center justify-center overflow-hidden bg-[#F8F1E7] dark:bg-slate-900 rounded-3xl transition-colors duration-300">
+                <div
+                    className="relative w-full h-full flex items-center justify-center overflow-hidden bg-[#F8F1E7] dark:bg-slate-900 rounded-3xl transition-colors duration-300"
+                    onClick={handleAvatarPointer}
+                    onMouseMove={(event) => {
+                        const imgEl = baseImgRef.current;
+                        if (!imgEl || !onHitClick) {
+                            event.currentTarget.style.cursor = "default";
+                            return;
+                        }
+                        const hit = isAvatarPixelHit(event.clientX, event.clientY, imgEl);
+                        event.currentTarget.style.cursor = hit ? "pointer" : "default";
+                    }}
+                    onMouseLeave={(event) => {
+                        event.currentTarget.style.cursor = "default";
+                    }}
+                >
                     <motion.div
                         animate={{ y: [0, -6, 0] }}
                         transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
@@ -2344,6 +2452,7 @@ class OpenAI {
                     >
                         <div className="relative w-full h-full flex items-center justify-center">
                             <img
+                                ref={baseImgRef}
                                 src={avatarBase}
                                 alt="CORA Avatar"
                                 className="absolute inset-0 w-full h-full object-contain select-none pointer-events-none"
@@ -3129,7 +3238,11 @@ class OpenAI {
                     }, { bumpUserActivity: false });
                     setMessages(conversation.messages || []);
                     setChatMemory(conversation.chatMemory || []);
-                    setMedicationInfo(conversation.medicationInfo || null);
+                    setMedicationInfo(
+                        hasMedicationCardData(conversation.medicationInfo)
+                            ? conversation.medicationInfo
+                            : null
+                    );
                     setCardCollapsed(window.innerWidth <= 768);
                     setActiveSavedChatId(conversation.id || chat.id || null);
                     setInput("");
@@ -3932,26 +4045,28 @@ class OpenAI {
                     const chatImages = [...drugImages, ...(response.images || []), ...generatedImages]
                         .filter((url, index, list) => url && list.indexOf(url) === index)
                         .slice(0, 8);
+                    const cardInfo = hasMedicationCardData(info) ? info : null;
+
                     const assistantMessage = {
                         id: (Date.now() + 1).toString(),
                         role: "assistant",
                         content: info.answer,
                         images: chatImages,
                         drugImages: drugImages,
-                        medicationInfo: info
+                        medicationInfo: cardInfo
                     };
 
                     const finalMessages = [...nextMessagesBeforeSend, assistantMessage];
                     const finalMemory = [...currentMemory, { role: "assistant", content: info.answer }].slice(-10);
                     setMessages(finalMessages);
-                    setMedicationInfo(info);
+                    setMedicationInfo(cardInfo);
                     setCardCollapsed(window.innerWidth <= 768);
                     setChatMemory(finalMemory);
                     saveChatRecord(finalChatId, {
                         title: makeChatTitle(text),
                         messages: finalMessages,
                         chatMemory: finalMemory,
-                        medicationInfo: info,
+                        medicationInfo: cardInfo,
                         geminiChatId: response.chatId || latestGeminiChatId || ""
                     }, {
                         bumpUserActivity: false,
@@ -4021,7 +4136,13 @@ class OpenAI {
             };
 
                 const MedicationCard = () => {
-                if (!medicationInfo) return null;
+                if (!hasMedicationCardData(medicationInfo)) return null;
+                const sections = [
+                    { key: "ingredients", icon: "pill", title: "主要成分", items: medicationInfo.ingredients },
+                    { key: "indications", icon: "shield-alert", title: "適應症", items: medicationInfo.indications },
+                    { key: "side_effects", icon: "alert-triangle", title: "常見副作用", items: medicationInfo.side_effects },
+                    { key: "warnings", icon: "badge-alert", title: "禁忌與注意事項", items: medicationInfo.warnings }
+                ].filter((section) => Array.isArray(section.items) && section.items.length > 0);
                 return (
                     <div className={`gpt-card ${cardCollapsed ? "collapsed" : ""}`} onWheel={(e) => e.stopPropagation()} onTouchMove={(e) => e.stopPropagation()}>
                         <div className="gpt-card-head">
@@ -4041,10 +4162,12 @@ class OpenAI {
                         </div>
                         {!cardCollapsed && (
                             <div className="gpt-card-grid">
-                                <div className="gpt-card-section"><h3><Icon name="pill" size={15} />主要成分</h3><ul>{(medicationInfo.ingredients && medicationInfo.ingredients.length ? medicationInfo.ingredients : ["可於對話回答中查看重點說明"]).map((item, idx) => <li key={idx}>{item}</li>)}</ul></div>
-                                <div className="gpt-card-section"><h3><Icon name="shield-alert" size={15} />適應症</h3><ul>{(medicationInfo.indications && medicationInfo.indications.length ? medicationInfo.indications : ["可於對話回答中查看重點說明"]).map((item, idx) => <li key={idx}>{item}</li>)}</ul></div>
-                                <div className="gpt-card-section"><h3><Icon name="alert-triangle" size={15} />常見副作用</h3><ul>{(medicationInfo.side_effects && medicationInfo.side_effects.length ? medicationInfo.side_effects : ["若有不適或特殊疾病，建議諮詢醫師或藥師"]).map((item, idx) => <li key={idx}>{item}</li>)}</ul></div>
-                                <div className="gpt-card-section"><h3><Icon name="badge-alert" size={15} />禁忌與注意事項</h3><ul>{(medicationInfo.warnings && medicationInfo.warnings.length ? medicationInfo.warnings : ["本系統僅供衛教參考，實際用藥請依醫囑與藥袋標示"]).map((item, idx) => <li key={idx}>{item}</li>)}</ul></div>
+                                {sections.map((section) => (
+                                    <div key={section.key} className="gpt-card-section">
+                                        <h3><Icon name={section.icon} size={15} />{section.title}</h3>
+                                        <ul>{section.items.map((item, idx) => <li key={idx}>{item}</li>)}</ul>
+                                    </div>
+                                ))}
                             </div>
                         )}
                     </div>
@@ -4255,21 +4378,21 @@ class OpenAI {
                             )}
 
                             <div className="cora-mobile-avatar-message">
-                                <div className="cora-mobile-avatar-box" onClick={handleCharacterClick} role="button" tabIndex={0} aria-label="點擊 Cora 角色" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleCharacterClick(); } }}>
-                                    <Character2D isTalking={isTalking} audioEnabled={audioEnabled} />
+                                <div className="cora-mobile-avatar-box" role="button" tabIndex={0} aria-label="點擊 Cora 角色" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleCharacterClick(); } }}>
+                                    <Character2D isTalking={isTalking} audioEnabled={audioEnabled} onHitClick={handleCharacterClick} />
                                 </div>
                             </div>
 
-                            {medicationInfo && (
+                            {hasMedicationCardData(medicationInfo) && (
                                 <div className="gpt-card-in-chat">
                                     <MedicationCard />
                                 </div>
                             )}
                         </div>
 
-                        <div className="cora-floating-avatar" onClick={handleCharacterClick} role="button" tabIndex={0} aria-label="點擊 Cora 隨機互動" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleCharacterClick(); } }} title="點點 Cora，隨機聊聊天">
+                        <div className="cora-floating-avatar" role="button" tabIndex={0} aria-label="點擊 Cora 隨機互動" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleCharacterClick(); } }} title="點點 Cora 角色，隨機聊聊天">
                             <div className="cora-floating-avatar-label">CORA</div>
-                            <Character2D isTalking={isTalking} audioEnabled={audioEnabled} />
+                            <Character2D isTalking={isTalking} audioEnabled={audioEnabled} onHitClick={handleCharacterClick} />
                         </div>
 
                         <div className="gpt-composer-wrap">
@@ -4305,7 +4428,7 @@ class OpenAI {
                                     <a href="https://mixcyanx.github.io/CORA-AI-SYSTEM/terms.html" target="_blank" rel="noopener noreferrer">服務條款</a>
                                 </div>
                             </div>
-                            {medicationInfo && (
+                            {hasMedicationCardData(medicationInfo) && (
                                 <div className="gpt-card-under-input">
                                     <MedicationCard />
                                 </div>
