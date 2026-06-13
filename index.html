@@ -2586,6 +2586,7 @@ class OpenAI {
             const speechUtteranceRef = useRef(null);
             const speechKeepAliveTimerRef = useRef(null);
             const ttsUnlockedRef = useRef(false);
+            const startupDemoAudioPlayedRef = useRef(false);
             const ttsPrimedAtRef = useRef(0);
             const greetingSpeakPendingRef = useRef(true);
             const greetingSpokenRef = useRef(false);
@@ -3759,6 +3760,127 @@ class OpenAI {
 
             speakLocalRef.current = speakLocal;
 
+
+            const playDemoAudioWithMouth = async (audioUrl, fallbackText = "") => {
+                const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+                const setMouthInstant = (mode) => {
+                    const nextMode = mode === true ? "open" : (mode || "rest");
+                    const nextValue = nextMode === "rest" ? false : nextMode;
+                    mouthLastStateRef.current = nextMode;
+                    setAvatarMouthMode(nextValue);
+                };
+
+                const stopDemoMouth = () => {
+                    if (mouthTimerRef.current) {
+                        clearInterval(mouthTimerRef.current);
+                        mouthTimerRef.current = null;
+                    }
+                    if (mouthRafRef.current) {
+                        cancelAnimationFrame(mouthRafRef.current);
+                        mouthRafRef.current = null;
+                    }
+                    if (mouthEarlyStopRef.current) {
+                        clearTimeout(mouthEarlyStopRef.current);
+                        mouthEarlyStopRef.current = null;
+                    }
+                    mouthLastStateRef.current = "rest";
+                    setAvatarMouthMode(false);
+                };
+
+                const startDemoMouth = () => {
+                    stopDemoMouth();
+                    const modes = ["open", "small", "o", "small"];
+                    let i = 0;
+                    setMouthInstant("open");
+                    mouthTimerRef.current = setInterval(() => {
+                        if (!audioEnabled || !ttsAudioRef.current || ttsAudioRef.current.paused || ttsAudioRef.current.ended) {
+                            stopDemoMouth();
+                            return;
+                        }
+                        setMouthInstant(modes[i % modes.length]);
+                        i++;
+                    }, 115);
+                };
+
+                if (!audioEnabled || !audioUrl) return false;
+
+                try { window.speechSynthesis?.cancel(); } catch {}
+                if (ttsAudioRef.current) {
+                    try { ttsAudioRef.current.pause(); } catch {}
+                    ttsAudioRef.current = null;
+                }
+
+                return await new Promise((resolve) => {
+                    let finished = false;
+                    let watchdog = null;
+                    const audio = new Audio(audioUrl);
+                    audio.preload = "auto";
+                    audio.crossOrigin = "anonymous";
+                    ttsAudioRef.current = audio;
+                    aiSpeechActiveRef.current = true;
+                    ignoreRecognitionUntilRef.current = Date.now() + 120000;
+
+                    const finish = (ok) => {
+                        if (finished) return;
+                        finished = true;
+                        if (watchdog) clearTimeout(watchdog);
+                        stopDemoMouth();
+                        aiSpeechActiveRef.current = false;
+                        ignoreRecognitionUntilRef.current = Date.now();
+                        if (ttsAudioRef.current === audio) ttsAudioRef.current = null;
+                        resolve(ok);
+                    };
+
+                    audio.onplay = () => startDemoMouth();
+                    audio.onended = () => finish(true);
+                    audio.onerror = () => finish(false);
+                    watchdog = setTimeout(() => finish(false), 60000);
+
+                    audio.play().catch(async () => {
+                        stopDemoMouth();
+                        await wait(80);
+                        finish(false);
+                    });
+                });
+            };
+
+            useEffect(() => {
+                let cancelled = false;
+                let timer = null;
+                const introAudioUrl = "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/main/0000.mp3";
+
+                const tryPlayIntroAudio = async () => {
+                    if (cancelled || startupDemoAudioPlayedRef.current || !audioEnabled) return;
+                    startupDemoAudioPlayedRef.current = true;
+                    const ok = await playDemoAudioWithMouth(introAudioUrl, "");
+                    if (!ok && !cancelled) {
+                        // 多數瀏覽器會擋自動播放；保留第一次點擊/按鍵後重試，但不改用語音 API。
+                        startupDemoAudioPlayedRef.current = false;
+                    }
+                };
+
+                const playAfterUserGesture = () => {
+                    tryPlayIntroAudio();
+                    window.removeEventListener("pointerdown", playAfterUserGesture);
+                    window.removeEventListener("keydown", playAfterUserGesture);
+                    window.removeEventListener("touchstart", playAfterUserGesture);
+                };
+
+                timer = setTimeout(tryPlayIntroAudio, 500);
+                window.addEventListener("pointerdown", playAfterUserGesture, { once: true });
+                window.addEventListener("keydown", playAfterUserGesture, { once: true });
+                window.addEventListener("touchstart", playAfterUserGesture, { once: true });
+
+                return () => {
+                    cancelled = true;
+                    if (timer) clearTimeout(timer);
+                    window.removeEventListener("pointerdown", playAfterUserGesture);
+                    window.removeEventListener("keydown", playAfterUserGesture);
+                    window.removeEventListener("touchstart", playAfterUserGesture);
+                };
+            }, [audioEnabled]);
+
             const handleCharacterClick = () => {
                 const now = Date.now();
                 if (now - lastCharacterClickRef.current < 1800) return;
@@ -4010,6 +4132,93 @@ class OpenAI {
                     voiceGenerationLockRef.current = false;
                     voiceHardPausedForGenerationRef.current = false;
                 }, 90000);
+
+                const demoAnswers = {
+                    "用脈優是做什麼的？有什麼副作用？": {
+                        answer: "脈優通常是用來控制高血壓的藥，有些人也會用在心絞痛，主要是幫助血管放鬆，讓血壓比較穩。\n\n常見副作用可能有頭暈、臉紅、心跳變快、腳踝水腫或覺得疲倦。剛開始吃藥時，起身請慢一點，避免頭暈跌倒。\n\n請照藥袋指示服用，不要自己突然停藥。如果出現嚴重胸悶、呼吸困難、臉或嘴唇腫起來，請立刻就醫。",
+                        title: "脈優用藥說明",
+                        medicationInfo: {
+                            ingredients: ["常見成分為 Amlodipine，實際成分請以藥袋或藥盒標示為準"],
+                            indications: ["控制高血壓", "部分情況可用於心絞痛"],
+                            side_effects: ["頭暈", "臉紅", "心跳變快", "腳踝水腫", "疲倦"],
+                            warnings: ["不要自行加量或停藥", "起身動作放慢，避免頭暈跌倒", "嚴重胸悶、呼吸困難或過敏時請立刻就醫"],
+                            reference_image_query: "脈優 Amlodipine 藥盒"
+                        },
+                        audioUrl: "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/main/0001.mp3"
+                    },
+                    "高血壓藥和感冒藥可以一起吃嗎？": {
+                        answer: "不建議自己直接一起吃。\n\n有些感冒藥可能會讓血壓升高，或影響高血壓藥的效果，尤其是鼻塞藥、止痛藥或複方感冒藥要特別小心。\n\n比較安全的做法是：把高血壓藥和感冒藥的藥袋拿給藥師或醫師確認，再決定能不能一起吃。\n\n如果吃了之後出現心跳很快、胸悶、血壓升高或頭暈不舒服，請盡快就醫。",
+                        title: "高血壓藥與感冒藥",
+                        medicationInfo: {
+                            ingredients: [],
+                            indications: ["高血壓用藥與感冒藥併用前的安全提醒"],
+                            side_effects: ["心跳變快", "血壓升高", "頭暈", "胸悶"],
+                            warnings: ["不要自行混用藥物", "複方感冒藥與鼻塞藥需特別小心", "請先讓醫師或藥師確認藥袋"],
+                            reference_image_query: "高血壓藥 感冒藥 交互作用"
+                        },
+                        audioUrl: "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/main/0002.mp3"
+                    }
+                };
+
+                const demoAnswer = demoAnswers[text];
+
+                if (demoAnswer) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+
+                    const info = demoAnswer.medicationInfo || null;
+                    const assistantMessage = {
+                        id: (Date.now() + 1).toString(),
+                        role: "assistant",
+                        content: demoAnswer.answer,
+                        medicationInfo: info
+                    };
+                    const finalMessages = [...nextMessagesBeforeSend, assistantMessage];
+                    const finalMemory = [...currentMemory, { role: "assistant", content: demoAnswer.answer }].slice(-10);
+
+                    setMessages(finalMessages);
+                    setMedicationInfo(info);
+                    setCardCollapsed(window.innerWidth <= 768);
+                    setChatMemory(finalMemory);
+                    saveChatRecord(activeId, {
+                        title: demoAnswer.title || makeChatTitle(text),
+                        messages: finalMessages,
+                        chatMemory: finalMemory,
+                        medicationInfo: info,
+                        geminiChatId: latestGeminiChatId || ""
+                    }, { bumpUserActivity: false });
+
+                    notifyReply();
+                    voiceLastAssistantTextRef.current = String(demoAnswer.answer || "");
+                    setLoading(false);
+                    setImageGenerating(false);
+                    loadingRef.current = false;
+                    if (demoAnswer.audioUrl) {
+                        await playDemoAudioWithMouth(demoAnswer.audioUrl, demoAnswer.answer);
+                    }
+
+                    if (sendSafetyTimerRef.current) {
+                        clearTimeout(sendSafetyTimerRef.current);
+                        sendSafetyTimerRef.current = null;
+                    }
+                    sendingRef.current = false;
+                    loadingRef.current = false;
+                    voiceLastAiFinishedAtRef.current = Date.now();
+                    ignoreRecognitionUntilRef.current = Date.now();
+                    voiceRecognitionSubmittingRef.current = false;
+                    voiceGenerationLockRef.current = false;
+                    voiceHardPausedForGenerationRef.current = false;
+
+                    if (shouldResumeVoiceAfterResponse && !voiceManualPausedRef.current) {
+                        voiceAutoModeRef.current = true;
+                        setVoiceAutoMode(true);
+                        startListeningInternal();
+                    } else {
+                        voiceAutoModeRef.current = false;
+                        setVoiceAutoMode(false);
+                        setIsListening(false);
+                    }
+                    return;
+                }
 
                 try {
                     const systemPrompt = `你是一位名叫 Cora 的專業且親切的藥劑師助手，回答要自然、簡潔、像真人藥師聊天。請以 JSON 格式回傳：{"answer": "口語解釋", "ingredients": [], "indications": [], "side_effects": [], "warnings": [], "reference_image_query": "搜尋關鍵字"}。使用繁體中文。`;
