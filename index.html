@@ -2944,29 +2944,12 @@ class OpenAI {
 
             useEffect(() => {
                 setMessages([{ id: "greeting", role: "assistant", content: CORA_GREETING_TEXT }]);
-                greetingSpokenRef.current = false;
-                greetingSpeakPendingRef.current = true;
 
-                const strictGesture = needsStrictTTSGesture();
-                const greetingTimers = [];
-                const scheduleGreetingTry = (ms, finalize) => {
-                    greetingTimers.push(setTimeout(() => {
-                        playGreetingOnceRef.current?.({ finalize });
-                    }, ms));
-                };
-
-                if (strictGesture) {
-                    scheduleGreetingTry(1200, true);
-                } else {
-                    scheduleGreetingTry(900, true);
-                }
-
-                const onFirstGestureForGreeting = (event) => {
-                    if (isAvatarGestureTarget(event)) return;
-                    playGreetingOnceRef.current?.({ finalize: true });
-                };
-                window.addEventListener("touchstart", onFirstGestureForGreeting, { capture: true, once: true, passive: true });
-                window.addEventListener("pointerdown", onFirstGestureForGreeting, { capture: true, once: true, passive: true });
+                // Demo 固定版：開場自我介紹改由 0000.mp3 播放。
+                // 這裡關閉原本的 speechSynthesis 自動問候，避免 TTS 搶先播放。
+                greetingSpokenRef.current = true;
+                greetingSpeakPendingRef.current = false;
+                try { window.speechSynthesis?.cancel(); } catch {}
 
                 // Initialize Speech Recognition
                 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -3096,9 +3079,13 @@ class OpenAI {
                     recognitionRef.current = recognition;
                 }
                 return () => {
-                    greetingTimers.forEach((id) => clearTimeout(id));
-                    window.removeEventListener("touchstart", onFirstGestureForGreeting, true);
-                    window.removeEventListener("pointerdown", onFirstGestureForGreeting, true);
+                    if (voiceRestartTimerRef.current) clearTimeout(voiceRestartTimerRef.current);
+                    if (voiceResultTimerRef.current) clearTimeout(voiceResultTimerRef.current);
+                    if (sendSafetyTimerRef.current) clearTimeout(sendSafetyTimerRef.current);
+                    stopActiveSpeech();
+                    if (recognitionRef.current) {
+                        try { recognitionRef.current.stop(); } catch {}
+                    }
                 };
             }, []);
 
@@ -3853,6 +3840,7 @@ class OpenAI {
                 const tryPlayIntroAudio = async () => {
                     if (cancelled || startupDemoAudioPlayedRef.current || !audioEnabled) return;
                     startupDemoAudioPlayedRef.current = true;
+                    try { window.speechSynthesis?.cancel(); } catch {}
                     const ok = await playDemoAudioWithMouth(introAudioUrl, "");
                     if (!ok && !cancelled) {
                         // 多數瀏覽器會擋自動播放；保留第一次點擊/按鍵後重試，但不改用語音 API。
@@ -3867,7 +3855,7 @@ class OpenAI {
                     window.removeEventListener("touchstart", playAfterUserGesture);
                 };
 
-                timer = setTimeout(tryPlayIntroAudio, 500);
+                timer = setTimeout(tryPlayIntroAudio, 300);
                 window.addEventListener("pointerdown", playAfterUserGesture, { once: true });
                 window.addEventListener("keydown", playAfterUserGesture, { once: true });
                 window.addEventListener("touchstart", playAfterUserGesture, { once: true });
@@ -3888,35 +3876,21 @@ class OpenAI {
                 if (!audioEnabled) return;
                 if (avatarTtsLockRef.current) return;
 
-                if (isMobileOrTabletExperience()) {
-                    if (greetingPlaybackActiveRef.current) {
-                        stopActiveSpeech();
-                        greetingPlaybackActiveRef.current = false;
-                    }
-                    avatarTtsLockRef.current = true;
-                    greetingSpokenRef.current = true;
-                    greetingSpeakPendingRef.current = false;
-                    if (!ttsUnlockedRef.current) {
-                        unlockBrowserTTSIfNeeded({ force: true });
-                    }
-                    const run = async () => {
-                        try {
-                            stopActiveSpeech();
-                            await speakLocal(CORA_GREETING_TEXT, { mobileGreeting: true });
-                        } finally {
-                            avatarTtsLockRef.current = false;
-                        }
-                    };
-                    run();
-                    return;
-                }
+                const introAudioUrl = "https://raw.githubusercontent.com/Mixcyanx/CORA-AI-SYSTEM/main/0000.mp3";
+                avatarTtsLockRef.current = true;
+                greetingSpokenRef.current = true;
+                greetingSpeakPendingRef.current = false;
+                try { window.speechSynthesis?.cancel(); } catch {}
 
-                if (greetingPlaybackActiveRef.current) {
-                    stopActiveSpeech();
-                    greetingPlaybackActiveRef.current = false;
-                }
-                unlockBrowserTTSIfNeeded({ force: false });
-                speakLocal(pickRandomDesktopFunLine());
+                const run = async () => {
+                    try {
+                        stopActiveSpeech();
+                        await playDemoAudioWithMouth(introAudioUrl, "");
+                    } finally {
+                        avatarTtsLockRef.current = false;
+                    }
+                };
+                run();
             };
 
             const notifyReply = () => {
